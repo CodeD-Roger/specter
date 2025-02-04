@@ -1,0 +1,9 @@
+# Ignorer les fichiers de logs et scans générés
+logs/*
+scans/*
+reports/*
+
+# Autoriser le suivi des dossiers vides
+!logs/.gitkeep
+!scans/.gitkeep
+!reports/.gitkeep

@@ -1,0 +1,53 @@
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-02-04 15:06 CET
+Initiating Ping Scan at 15:06
+Scanning 10.3.4.200 [4 ports]
+Completed Ping Scan at 15:06, 0.05s elapsed (1 total hosts)
+Initiating Parallel DNS resolution of 1 host. at 15:06
+Completed Parallel DNS resolution of 1 host. at 15:06, 0.02s elapsed
+Initiating SYN Stealth Scan at 15:06
+Scanning ASV-AMJ-AD.amjgroupe.local (10.3.4.200) [1000 ports]
+Discovered open port 443/tcp on 10.3.4.200
+Discovered open port 3389/tcp on 10.3.4.200
+Discovered open port 445/tcp on 10.3.4.200
+Discovered open port 53/tcp on 10.3.4.200
+Discovered open port 139/tcp on 10.3.4.200
+Discovered open port 135/tcp on 10.3.4.200
+Discovered open port 21/tcp on 10.3.4.200
+Discovered open port 80/tcp on 10.3.4.200
+Discovered open port 88/tcp on 10.3.4.200
+Discovered open port 88/tcp on 10.3.4.200
+Discovered open port 389/tcp on 10.3.4.200
+Discovered open port 636/tcp on 10.3.4.200
+Discovered open port 5060/tcp on 10.3.4.200
+Discovered open port 3269/tcp on 10.3.4.200
+Discovered open port 2000/tcp on 10.3.4.200
+Discovered open port 464/tcp on 10.3.4.200
+Discovered open port 8010/tcp on 10.3.4.200
+Discovered open port 3268/tcp on 10.3.4.200
+Completed SYN Stealth Scan at 15:06, 9.05s elapsed (1000 total ports)
+Nmap scan report for ASV-AMJ-AD.amjgroupe.local (10.3.4.200)
+Host is up (0.018s latency).
+Not shown: 982 filtered tcp ports (no-response)
+PORT     STATE  SERVICE
+21/tcp   open   ftp
+53/tcp   open   domain
+80/tcp   open   http
+88/tcp   open   kerberos-sec
+113/tcp  closed ident
+135/tcp  open   msrpc
+139/tcp  open   netbios-ssn
+389/tcp  open   ldap
+443/tcp  open   https
+445/tcp  open   microsoft-ds
+464/tcp  open   kpasswd5
+636/tcp  open   ldapssl
+2000/tcp open   cisco-sccp
+3268/tcp open   globalcatLDAP
+3269/tcp open   globalcatLDAPssl
+3389/tcp open   ms-wbt-server
+5060/tcp open   sip
+8010/tcp open   xmpp
+
+Read data files from: /usr/share/nmap
+Nmap done: 1 IP address (1 host up) scanned in 9.22 seconds
+           Raw packets sent: 2971 (130.700KB) | Rcvd: 22 (956B)

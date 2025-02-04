@@ -29,8 +29,6 @@ cd pentest-toolkit
 
 ### 2️⃣ Exécuter le script d'installation
  ```bash
-
-⚠ Exécuter en root (sudo)
 sudo chmod +x install.sh
 sudo ./install.sh
 ```

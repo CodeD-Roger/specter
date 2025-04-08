@@ -24,7 +24,7 @@ Il effectue les actions suivantes :
 
  ```bash
 git clone https://github.com/CodeD-Roger/Pentest-Toolkit.git
-cd pentest-toolkit
+cd Pentest-Toolkit
 ```
 
 ### 2️⃣ Exécuter le script d'installation

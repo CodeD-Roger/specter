@@ -140,7 +140,24 @@
                 <h1>🔎 Reconnaissance</h1>
                 <p>Énumération passive : sous-domaines, DNS, OSINT, probing HTTP.</p>
             </header>
-            <div id="recon-tools" class="tool-grid"></div>
+
+            <div class="recon-target-bar card">
+                <div class="recon-target-row">
+                    <div class="recon-target-field">
+                        <label for="recon-domain">Domaine cible</label>
+                        <input type="text" id="recon-domain" placeholder="example.com"
+                               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    </div>
+                    <div class="recon-target-field">
+                        <label for="recon-url">URL cible</label>
+                        <input type="text" id="recon-url" placeholder="https://example.com"
+                               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    </div>
+                </div>
+                <p class="hint" style="margin:8px 0 0">Pré-remplit automatiquement tous les champs des outils ci-dessous.</p>
+            </div>
+
+            <div id="recon-tools"></div>
         </section>
 
         <!-- ─── Scan ───────────────────────────────────────────────── -->

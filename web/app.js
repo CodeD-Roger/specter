@@ -135,6 +135,7 @@ async function launchApp() {
         CATALOG = await api("/api/catalog");
         renderToolGrids();
         await refreshStatus();
+        renderReconSection();
         await refreshRecent();
     } catch (e) {
         console.error(e);
@@ -209,6 +210,7 @@ const PHASE_TOOLS = {
 
 function renderToolGrids() {
     for (const [phase, list] of Object.entries(PHASE_TOOLS)) {
+        if (phase === "recon") continue; // handled by renderReconSection
         const grid = $(`#${phase}-tools`);
         if (!grid) continue;
         grid.innerHTML = "";
@@ -218,6 +220,183 @@ function renderToolGrids() {
             grid.appendChild(buildToolCard(t, spec));
         }
     }
+}
+
+// ─── Recon pipeline ────────────────────────────────────────────────────
+
+const RECON_PIPELINE = [
+    { id: 1, label: "Discovery",      desc: "Énumération des sous-domaines & OSINT",  tools: ["subfinder", "amass", "assetfinder", "theharvester"] },
+    { id: 2, label: "DNS Resolution", desc: "Résolution et validation DNS",             tools: ["dnsx"] },
+    { id: 3, label: "HTTP Probing",   desc: "Sondage des services HTTP/HTTPS actifs",  tools: ["httpx", "whatweb"] },
+    { id: 4, label: "Crawling",       desc: "Exploration et cartographie des endpoints", tools: ["katana"] },
+];
+
+const TOOL_BINARY_MAP = {
+    subfinder: "subfinder", amass: "amass", assetfinder: "assetfinder",
+    dnsx: "dnsx", httpx: "httpx", whatweb: "whatweb",
+    katana: "katana", theharvester: "theHarvester",
+};
+
+function isToolAvailable(toolId) {
+    if (!STATUS || !STATUS.tools) return null;
+    const bin = TOOL_BINARY_MAP[toolId];
+    return bin != null ? (STATUS.tools[bin] === true) : null;
+}
+
+function renderReconSection() {
+    const container = document.getElementById("recon-tools");
+    if (!container) return;
+    container.innerHTML = "";
+    container.className = "recon-pipeline";
+
+    for (const stage of RECON_PIPELINE) {
+        const stageEl = document.createElement("div");
+        stageEl.className = "recon-stage";
+
+        const header = document.createElement("div");
+        header.className = "recon-stage-header";
+        header.innerHTML = `
+            <div class="recon-stage-num">${stage.id}</div>
+            <div>
+                <div class="recon-stage-label">${stage.label}</div>
+                <div class="recon-stage-desc">${stage.desc}</div>
+            </div>`;
+        stageEl.appendChild(header);
+
+        const grid = document.createElement("div");
+        grid.className = "recon-stage-grid";
+        for (const toolId of stage.tools) {
+            const spec = CATALOG[toolId];
+            if (!spec) continue;
+            grid.appendChild(buildReconToolCard(toolId, spec));
+        }
+        stageEl.appendChild(grid);
+        container.appendChild(stageEl);
+    }
+
+    setupSharedReconInputs();
+}
+
+function buildReconToolCard(name, spec) {
+    const available = isToolAvailable(name);
+    const card = document.createElement("div");
+    card.className = "tool-card recon-tool-card" + (available === false ? " unavailable" : "");
+    card.id = `recon-card-${name}`;
+
+    // Header
+    const head = document.createElement("div");
+    head.className = "tool-card-header";
+    let badge;
+    if (available === false) {
+        badge = `<span class="tool-badge ko">non installé</span>`;
+    } else if (available === true) {
+        badge = `<span class="tool-badge ok">prêt</span>`;
+    } else {
+        badge = `<span class="tool-badge">${name}</span>`;
+    }
+    head.innerHTML = `
+        <div class="tool-card-title">${spec.label}</div>
+        <div class="recon-card-badges">
+            ${badge}
+            <span class="tool-result-badge" id="result-${name}" hidden></span>
+        </div>`;
+    card.appendChild(head);
+
+    // Inputs
+    const form = document.createElement("div");
+    form.className = "form-grid";
+    const inputs = {};
+    for (const need of spec.needs) {
+        const id = `f-${name}-${need}`;
+        const lbl = document.createElement("label");
+        lbl.setAttribute("for", id);
+        lbl.textContent = labelFor(need);
+        form.appendChild(lbl);
+        const inp = document.createElement("input");
+        inp.id = id;
+        inp.placeholder = placeholderFor(need);
+        inp.dataset.reconField = need;
+        form.appendChild(inp);
+        inputs[need] = inp;
+    }
+    for (const opt of optionalsFor(name)) {
+        const id = `f-${name}-${opt}`;
+        const lbl = document.createElement("label");
+        lbl.setAttribute("for", id);
+        lbl.textContent = labelFor(opt);
+        form.appendChild(lbl);
+        const inp = document.createElement("input");
+        inp.id = id;
+        inp.placeholder = placeholderFor(opt);
+        form.appendChild(inp);
+        inputs[opt] = inp;
+    }
+    card.appendChild(form);
+
+    // Mini output (collapsible)
+    const miniOut = document.createElement("pre");
+    miniOut.className = "tool-mini-out";
+    miniOut.id = `mini-out-${name}`;
+    miniOut.hidden = true;
+    card.appendChild(miniOut);
+
+    // Footer
+    const footer = document.createElement("div");
+    footer.className = "recon-card-footer";
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "btn-ghost recon-toggle-btn";
+    toggleBtn.textContent = "▾ Sortie";
+    toggleBtn.id = `toggle-out-${name}`;
+    toggleBtn.hidden = true;
+    toggleBtn.addEventListener("click", () => {
+        miniOut.hidden = !miniOut.hidden;
+        toggleBtn.textContent = miniOut.hidden ? "▾ Sortie" : "▴ Masquer";
+    });
+
+    const launchBtn = document.createElement("button");
+    launchBtn.className = "btn-primary recon-launch-btn";
+    launchBtn.id = `launch-${name}`;
+    launchBtn.textContent = "▶ Lancer";
+    if (available === false) launchBtn.disabled = true;
+
+    launchBtn.addEventListener("click", () => {
+        const params = {};
+        for (const k of Object.keys(inputs)) {
+            const v = document.getElementById(`f-${name}-${k}`).value.trim();
+            if (v) params[k] = v;
+        }
+        runTool(name, spec.label, params, miniOut, card);
+    });
+
+    footer.appendChild(toggleBtn);
+    footer.appendChild(launchBtn);
+    card.appendChild(footer);
+
+    return card;
+}
+
+function setupSharedReconInputs() {
+    const domainInp = document.getElementById("recon-domain");
+    const urlInp    = document.getElementById("recon-url");
+
+    function fillDomain(val) {
+        document.querySelectorAll("#recon-tools input[data-recon-field='domain']").forEach(i => i.value = val);
+        document.querySelectorAll("#recon-tools input[data-recon-field='target']").forEach(i => { if (!i.value) i.value = val; });
+    }
+    function fillUrl(val) {
+        document.querySelectorAll("#recon-tools input[data-recon-field='url']").forEach(i => i.value = val);
+    }
+
+    if (domainInp) domainInp.addEventListener("input", e => {
+        fillDomain(e.target.value);
+        if (urlInp && !urlInp.value && e.target.value) {
+            const url = "https://" + e.target.value;
+            urlInp.value = url;
+            fillUrl(url);
+        }
+    });
+    if (urlInp) urlInp.addEventListener("input", e => fillUrl(e.target.value));
 }
 
 function buildToolCard(name, spec) {
@@ -326,11 +505,22 @@ function setupLogout() {
     });
 }
 
-function runTool(tool, label, params) {
+function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
     $("#exec-panel").hidden = false;
     $("#exec-title").textContent = `▶ ${label}`;
     $("#exec-cmd").textContent = "Initialisation...";
     $("#exec-output").innerHTML = "";
+
+    // Card running state
+    if (cardEl) {
+        cardEl.classList.remove("done");
+        cardEl.classList.add("running");
+        const lb = cardEl.querySelector(".recon-launch-btn");
+        if (lb) { lb.disabled = true; lb.textContent = "…"; }
+        const rb = cardEl.querySelector(".tool-result-badge");
+        if (rb) rb.hidden = true;
+    }
+    if (miniOutputEl) miniOutputEl.innerHTML = "";
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/run`);
@@ -348,6 +538,10 @@ function runTool(tool, label, params) {
             appendLine(out, `[+] Démarrage — sortie : ${msg.outfile}`, "sev-low");
         } else if (msg.type === "line") {
             appendLine(out, msg.data, classifyLine(msg.data));
+            if (miniOutputEl) {
+                appendLine(miniOutputEl, msg.data, classifyLine(msg.data));
+                miniOutputEl.scrollTop = miniOutputEl.scrollHeight;
+            }
         } else if (msg.type === "info") {
             appendLine(out, "[i] " + msg.msg, "sev-medium");
         } else if (msg.type === "error") {
@@ -356,13 +550,33 @@ function runTool(tool, label, params) {
             appendLine(out, `\n[✓] Terminé (code ${msg.code}) — ${msg.outfile}`, "open");
             updateTicker("TERMINÉ", label);
             setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
+            if (cardEl) {
+                cardEl.classList.remove("running");
+                cardEl.classList.add("done");
+                const lb = cardEl.querySelector(".recon-launch-btn");
+                if (lb) { lb.disabled = false; lb.textContent = "↺ Relancer"; }
+                const tb = cardEl.querySelector(".recon-toggle-btn");
+                if (tb) tb.hidden = false;
+                if (miniOutputEl) {
+                    const count = miniOutputEl.children.length;
+                    const rb = cardEl.querySelector(".tool-result-badge");
+                    if (rb && count > 0) { rb.textContent = count + " lignes"; rb.hidden = false; }
+                }
+            }
             refreshStatus();
             refreshRecent();
         }
         out.scrollTop = out.scrollHeight;
     };
     ws.onerror = () => appendLine($("#exec-output"), "[!] Erreur WebSocket", "sev-critical");
-    ws.onclose = () => { CURRENT_WS = null; };
+    ws.onclose = () => {
+        CURRENT_WS = null;
+        if (cardEl) {
+            cardEl.classList.remove("running");
+            const lb = cardEl.querySelector(".recon-launch-btn");
+            if (lb && lb.textContent === "…") { lb.disabled = false; lb.textContent = "▶ Lancer"; }
+        }
+    };
 }
 
 function appendLine(container, text, klass) {

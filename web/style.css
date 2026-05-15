@@ -615,3 +615,116 @@ input:focus, select:focus { border-color: var(--accent); }
     color: var(--text-dim);
     font-size: 14px;
 }
+
+/* ─── Recon : shared target bar ─────────────────────────────────────── */
+.recon-target-bar { margin-bottom: 28px; }
+.recon-target-row {
+    display: flex;
+    gap: 16px;
+}
+.recon-target-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.recon-target-field label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+.recon-target-field input { width: 100%; }
+
+/* ─── Recon : pipeline stages ───────────────────────────────────────── */
+.recon-pipeline { display: flex; flex-direction: column; gap: 28px; }
+
+.recon-stage-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+.recon-stage-num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(0, 217, 255, 0.12);
+    border: 1px solid rgba(0, 217, 255, 0.3);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+}
+.recon-stage-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-bright);
+}
+.recon-stage-desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+.recon-stage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+}
+
+/* ─── Recon : tool card states ──────────────────────────────────────── */
+.recon-tool-card { transition: border-color 0.2s; }
+.recon-tool-card.running {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(0, 217, 255, 0.08);
+}
+.recon-tool-card.done {
+    border-color: var(--green);
+    box-shadow: 0 0 12px rgba(72, 199, 116, 0.06);
+}
+.recon-card-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tool-result-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: rgba(72, 199, 116, 0.15);
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+.recon-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+.recon-launch-btn { flex-shrink: 0; }
+
+/* ─── Recon : mini output per card ──────────────────────────────────── */
+.tool-mini-out {
+    font-family: var(--font-mono);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: var(--text-bright);
+    font-size: 11.5px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 140px;
+    overflow-y: auto;
+    margin-top: 10px;
+}
+.recon-toggle-btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    color: var(--text-dim);
+    border-color: var(--border);
+}

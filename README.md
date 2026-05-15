@@ -44,7 +44,7 @@ chmod +x main.sh
 🔍 Scans disponibles
 - **Type de scan	Description**
 - **SYN Scan	Scan furtif (par défaut)**
-- **DP Scan	Détection des services UDP ouverts**
+- **UDP Scan	Détection des services UDP ouverts**
 - **ACK Scan	Détection des règles de firewall**
 - **IPv6 Scan	Scan de réseaux IPv6**
 - **Scan Agressif	Collecte maximale d’informations**

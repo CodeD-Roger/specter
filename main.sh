@@ -8,21 +8,24 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' 
 
+# Répertoire du script (résolu une seule fois, utilisable partout)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Variables globales pour le stockage des résultats
-SCAN_RESULTS="$HOME/.config/pentest_tools/scan_results.dat"
-REPORTS_DIR="$HOME/.config/pentest_tools/reports"
+SCAN_DIR="$SCRIPT_DIR/scans"
+NSE_SCAN_DIR="$SCAN_DIR"
+REPORTS_DIR="$SCRIPT_DIR/reports"
+LOGS_DIR="$SCRIPT_DIR/logs"
+SCAN_RESULTS="$SCRIPT_DIR/logs/scan_results.dat"
 
-SCAN_DIR="$HOME/.config/pentest_tools/scans"
-mkdir -p "$SCAN_DIR"
+# Création des répertoires nécessaires
+mkdir -p "$SCAN_DIR" "$REPORTS_DIR" "$LOGS_DIR"
 
-# Créer les répertoires nécessaires
-mkdir -p "$REPORTS_DIR"
-
-
-# Configuration des répertoires
+# Horodatage commun
 DATE=$(date +%Y%m%d_%H%M%S)
-SCAN_DIR="./scans"
-mkdir -p "$SCAN_DIR"
+
+# Hôte cible courant (mémorisé pour les rapports)
+target_host=""
 
 # Fonction pour afficher le titre
 show_header() {
@@ -62,21 +65,39 @@ complementary_tools_menu() {
         3)
             echo "Lancement de Nikto..."
             read -p "Entrez l'URL cible: " target
-            nikto -h "$target"
+            if [ -n "$target" ]; then
+                nikto -h "$target"
+            else
+                echo -e "${RED}URL vide${NC}"
+            fi
             read -p "Appuyez sur Entrée pour continuer"
             complementary_tools_menu
             ;;
         4)
             echo "Lancement de Dirb..."
+            if ! command -v dirb &> /dev/null; then
+                echo -e "${RED}Dirb n'est pas installé. Lancez install.sh.${NC}"
+                sleep 2
+                complementary_tools_menu
+                return
+            fi
             read -p "Entrez l'URL cible: " target
-            dirb "$target"
+            if [ -n "$target" ]; then
+                dirb "$target"
+            else
+                echo -e "${RED}URL vide${NC}"
+            fi
             read -p "Appuyez sur Entrée pour continuer"
             complementary_tools_menu
             ;;
         5)
             echo "Lancement de SQLmap..."
             read -p "Entrez l'URL cible: " target
-            sqlmap -u "$target" --wizard
+            if [ -n "$target" ]; then
+                sqlmap -u "$target" --wizard
+            else
+                echo -e "${RED}URL vide${NC}"
+            fi
             read -p "Appuyez sur Entrée pour continuer"
             complementary_tools_menu
             ;;
@@ -115,54 +136,13 @@ reporting_menu() {
         5)
             export_data
             ;;
-        [Rr]) 
-            main_menu 
+        [Rr])
+            main_menu
             ;;
-        *) 
+        *)
             echo -e "${RED}Option invalide${NC}"
             sleep 2
-            reporting_menu 
-            ;;
-    esac
-}
-
-# Menu de reporting
-reporting_menu() {
-    show_header
-    echo -e "${YELLOW}=== ANALYSE ET REPORTING ===${NC}"
-    echo ""
-    echo "1. Générer un rapport HTML"
-    echo "2. Générer un rapport XML"
-    echo "3. Voir les rapports existants"
-    echo "4. Analyser les résultats"
-    echo "5. Exporter les données"
-    echo -e "${RED}R${NC} - Retour au menu principal"
-    echo ""
-    read -p "Choisissez une option: " report_choice
-
-    case $report_choice in
-        1) 
-            generate_html_report
-            ;;
-        2)
-            generate_xml_report
-            ;;
-        3)
-            list_existing_reports
-            ;;
-        4)
-            analyze_results
-            ;;
-        5)
-            export_data
-            ;;
-        [Rr]) 
-            main_menu 
-            ;;
-        *) 
-            echo -e "${RED}Option invalide${NC}"
-            sleep 2
-            reporting_menu 
+            reporting_menu
             ;;
     esac
 }
@@ -420,12 +400,25 @@ EOF
 count_vulnerabilities() {
     local severity=$1
     local count=0
-    
+
     # Lire le fichier de résultats des scans
     if [ -f "$SCAN_RESULTS" ]; then
         count=$(grep -c "SEVERITY:$severity" "$SCAN_RESULTS")
     fi
-    
+
+    echo "$count"
+}
+
+# Raccourcis utilisés par show_active_alerts
+count_critical_vulnerabilities() { count_vulnerabilities "critical"; }
+count_major_vulnerabilities()    { count_vulnerabilities "high"; }
+
+# Compte les ports ouverts dans les scans Nmap les plus récents
+count_open_ports() {
+    local count=0
+    if [ -d "$SCAN_DIR" ]; then
+        count=$(grep -h -E "^[0-9]+/(tcp|udp).*open" "$SCAN_DIR"/*.txt 2>/dev/null | wc -l)
+    fi
     echo "$count"
 }
 
@@ -601,19 +594,50 @@ export_to_pdf() {
         sleep 2
         return
     fi
-    
-    local temp_html="$REPORTS_DIR/temp_report.html"
+
+    local temp_html="$REPORTS_DIR/temp_report_${DATE}.html"
     local export_file="$REPORTS_DIR/export_$(date +%Y%m%d_%H%M%S).pdf"
-    
-    # Générer un rapport HTML temporaire
-    generate_html_report > "$temp_html"
-    
-    # Convertir en PDF
+
+    # Construire un rapport HTML autonome (sans appels interactifs)
+    {
+        cat << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rapport de Pentest</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #2c3e50; }
+        .section { margin: 20px 0; }
+        .vuln-critical { color: red; }
+        .vuln-high { color: orange; }
+        .vuln-medium { color: yellow; }
+        .vuln-low { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Rapport de Pentest</h1>
+    <div class="section">
+        <h2>Informations générales</h2>
+        <p>Date: $(date)</p>
+        <p>Cible: ${target_host:-Non spécifié}</p>
+    </div>
+    <div class="section">
+        <h2>Résumé des découvertes</h2>
+        $(generate_summary)
+    </div>
+    <div class="section">
+        <h2>Détails des vulnérabilités</h2>
+        $(generate_vulnerabilities_details)
+    </div>
+</body>
+</html>
+EOF
+    } > "$temp_html"
+
     wkhtmltopdf "$temp_html" "$export_file"
-    
-    # Nettoyer le fichier temporaire
-    rm "$temp_html"
-    
+    rm -f "$temp_html"
+
     echo -e "${GREEN}Export PDF créé: $export_file${NC}"
     sleep 2
 }
@@ -732,7 +756,7 @@ fragmentation_config() {
 # Configuration du spoofing et des leurres
 spoof_config() {
     show_header
-    echo -e "${YELLOW}=== SPOOLING ET LEURRES ===${NC}"
+    echo -e "${YELLOW}=== SPOOFING ET LEURRES ===${NC}"
     echo ""
     echo "1. Décoy aléatoire"
     echo "2. IP source personnalisée"
@@ -967,7 +991,7 @@ nse_menu() {
         5) nse_scan "safe" ;;
         6) nse_scan "all" ;;
         7) custom_nse_scan ;;
-        8) view_scan_results ;;  # Ajout de la nouvelle option
+        8) view_scan_results "NSE" ;;
         [Rr]) main_menu ;;
         *) echo "Option invalide" ; sleep 2 ; nse_menu ;;
     esac
@@ -975,27 +999,24 @@ nse_menu() {
 }
 
 view_scan_results() {
-    echo "SCRIPT_DIR = $SCRIPT_DIR"
-echo "SCAN_DIR = $SCAN_DIR"
-
-    local scan_type=$1  # "Nmap" ou "NSE"
+    local scan_type=${1:-Nmap}  # "Nmap" ou "NSE"
     show_header
     echo -e "${YELLOW}=== RÉSULTATS DES SCANS $scan_type ===${NC}"
 
-    # Détection automatique du chemin du script
-    SCRIPT_DIR=$(dirname "$(realpath "$0")")
-    SCAN_DIR="$SCRIPT_DIR/scans"
-    NSE_SCAN_DIR="$SCRIPT_DIR/nse_scans"
-
-    # Sélection du bon répertoire
+    # Sélection du bon répertoire (variables globales déjà initialisées)
+    local scan_dir
     if [ "$scan_type" == "Nmap" ]; then
         scan_dir="$SCAN_DIR"
     else
         scan_dir="$NSE_SCAN_DIR"
     fi
 
-    # Vérification de l'existence des scans
-    files=($(ls -1 "$scan_dir" 2>/dev/null))
+    # Vérification de l'existence des scans (en ignorant .gitkeep)
+    local files=()
+    while IFS= read -r -d '' f; do
+        files+=("$(basename "$f")")
+    done < <(find "$scan_dir" -maxdepth 1 -type f -not -name '.gitkeep' -print0 2>/dev/null)
+
     if [ ${#files[@]} -eq 0 ]; then
         echo "Aucun scan enregistré trouvé."
         sleep 2
@@ -1035,11 +1056,6 @@ delete_scan_file() {
     local scan_type=$1  # "Nmap" ou "NSE"
     local scan_dir
 
-    # Récupérer le bon répertoire en fonction du type de scan
-    SCRIPT_DIR=$(dirname "$(realpath "$0")")
-    SCAN_DIR="$SCRIPT_DIR/scans"
-    NSE_SCAN_DIR="$SCRIPT_DIR/nse_scans"
-
     if [ "$scan_type" == "Nmap" ]; then
         scan_dir="$SCAN_DIR"
     else
@@ -1049,7 +1065,11 @@ delete_scan_file() {
     echo "Suppression dans : $scan_dir"
 
     # Vérifier si des fichiers existent avant suppression
-    files=($(ls -1 "$scan_dir" 2>/dev/null))
+    local files=()
+    while IFS= read -r -d '' f; do
+        files+=("$(basename "$f")")
+    done < <(find "$scan_dir" -maxdepth 1 -type f -not -name '.gitkeep' -print0 2>/dev/null)
+
     if [ ${#files[@]} -eq 0 ]; then
         echo "Aucun fichier à supprimer."
         sleep 2
@@ -1065,19 +1085,16 @@ delete_scan_file() {
     echo ""
     read -p "Entrez le numéro du fichier à supprimer (ou '*' pour tout supprimer, 'R' pour retour) : " delete_choice
 
-if [[ "$delete_choice" =~ ^[0-9]+$ ]]; then
-    if (( delete_choice >= 1 && delete_choice <= ${#files[@]} )); then
-        selected_file="${files[$((delete_choice-1))]}"
-        rm "$scan_dir/$selected_file"
-        echo -e "${GREEN}Fichier supprimé : $selected_file${NC}"
-    else
-        echo -e "${RED}Numéro invalide. Veuillez choisir un fichier existant.${NC}"
-    fi
-        selected_file="${files[$((delete_choice-1))]}"
-        rm "$scan_dir/$selected_file"
-        echo -e "${GREEN}Fichier supprimé : $selected_file${NC}"
+    if [[ "$delete_choice" =~ ^[0-9]+$ ]]; then
+        if (( delete_choice >= 1 && delete_choice <= ${#files[@]} )); then
+            local selected_file="${files[$((delete_choice-1))]}"
+            rm -- "$scan_dir/$selected_file"
+            echo -e "${GREEN}Fichier supprimé : $selected_file${NC}"
+        else
+            echo -e "${RED}Numéro invalide. Veuillez choisir un fichier existant.${NC}"
+        fi
     elif [[ "$delete_choice" == "*" ]]; then
-        rm -rf "$scan_dir"/*
+        find "$scan_dir" -maxdepth 1 -type f -not -name '.gitkeep' -delete
         echo -e "${GREEN}Tous les fichiers ont été supprimés.${NC}"
     elif [[ "$delete_choice" =~ ^[Rr]$ ]]; then
         view_scan_results "$scan_type"
@@ -1092,14 +1109,37 @@ if [[ "$delete_choice" =~ ^[0-9]+$ ]]; then
 
 
 
+# Valide une cible (IPv4, IPv6, hostname, CIDR) pour éviter l'injection shell
+validate_target() {
+    local t=$1
+    if [[ "$t" =~ ^[A-Za-z0-9._:/-]+$ ]]; then
+        return 0
+    fi
+    echo -e "${RED}Cible invalide. Caractères autorisés : lettres, chiffres, . : / - _${NC}"
+    return 1
+}
+
+# Construit le tableau d'options avancées si elles ont été configurées
+_extra_opts() {
+    local -a opts=()
+    [ -n "$FRAG_OPTIONS"  ] && read -r -a tmp <<< "$FRAG_OPTIONS"  && opts+=("${tmp[@]}")
+    [ -n "$SPOOF_OPTIONS" ] && read -r -a tmp <<< "$SPOOF_OPTIONS" && opts+=("${tmp[@]}")
+    [ -n "$BW_OPTIONS"    ] && read -r -a tmp <<< "$BW_OPTIONS"    && opts+=("${tmp[@]}")
+    [ -n "$SCAN_OPTIONS"  ] && read -r -a tmp <<< "$SCAN_OPTIONS"  && opts+=("${tmp[@]}")
+    printf '%s\n' "${opts[@]}"
+}
+
 # Fonctions pour les types de scans spécifiques
 full_tcp_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN FULL TCP ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    output_file="$SCAN_DIR/full_tcp_${DATE}.txt"
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+    local output_file="$SCAN_DIR/full_tcp_${DATE}.txt"
+    local -a extra; mapfile -t extra < <(_extra_opts)
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -sT -p- -v $target | tee "$output_file"
+    sudo nmap -sT -p- -v "${extra[@]}" "$target" | tee "$output_file"
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1109,9 +1149,12 @@ udp_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN UDP ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    output_file="$SCAN_DIR/udp_${DATE}.txt"
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+    local output_file="$SCAN_DIR/udp_${DATE}.txt"
+    local -a extra; mapfile -t extra < <(_extra_opts)
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -sU -v $target | tee "$output_file"
+    sudo nmap -sU -v "${extra[@]}" "$target" | tee "$output_file"
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1121,9 +1164,12 @@ ipv6_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN IPv6 ===${NC}"
     read -p "Entrez l'adresse IPv6 cible: " target
-    output_file="$SCAN_DIR/ipv6_${DATE}.txt"
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+    local output_file="$SCAN_DIR/ipv6_${DATE}.txt"
+    local -a extra; mapfile -t extra < <(_extra_opts)
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -6 -v $target | tee "$output_file"
+    sudo nmap -6 -v "${extra[@]}" "$target" | tee "$output_file"
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1133,9 +1179,12 @@ ack_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN ACK ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    output_file="$SCAN_DIR/ack_${DATE}.txt"
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+    local output_file="$SCAN_DIR/ack_${DATE}.txt"
+    local -a extra; mapfile -t extra < <(_extra_opts)
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -sA -v $target | tee "$output_file"
+    sudo nmap -sA -v "${extra[@]}" "$target" | tee "$output_file"
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1146,18 +1195,21 @@ stealth_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN FURTIF (SYN) ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
     read -p "Vitesse du scan (0-5): " timing
     read -p "Fragmenter les paquets? (o/n): " fragment
 
-    cmd="sudo nmap -sS -v"
-    [[ $timing =~ ^[0-5]$ ]] && cmd="$cmd -T$timing"
-    [[ $fragment == "o" ]] && cmd="$cmd -f"
-    
-    output_file="$SCAN_DIR/stealth_scan_${DATE}.txt"
-    
+    local -a cmd=(sudo nmap -sS -v)
+    [[ $timing =~ ^[0-5]$ ]] && cmd+=("-T$timing")
+    [[ $fragment == "o" ]] && cmd+=("-f")
+    local -a extra; mapfile -t extra < <(_extra_opts)
+
+    local output_file="$SCAN_DIR/stealth_scan_${DATE}.txt"
+
     echo -e "${BLUE}Exécution du scan...${NC}"
-    $cmd $target | tee "$output_file"
-    
+    "${cmd[@]}" "${extra[@]}" "$target" | tee "$output_file"
+
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1168,12 +1220,14 @@ ultra_stealth_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN ULTRA DISCRET ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    
-    output_file="$SCAN_DIR/ultra_stealth_${DATE}.txt"
-    
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+
+    local output_file="$SCAN_DIR/ultra_stealth_${DATE}.txt"
+
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -sS -T2 -f -D RND:5 --data-length 24 $target | tee "$output_file"
-    
+    sudo nmap -sS -T2 -f -D RND:5 --data-length 24 "$target" | tee "$output_file"
+
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1184,12 +1238,15 @@ aggressive_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN AGRESSIF ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    
-    output_file="$SCAN_DIR/aggressive_${DATE}.txt"
-    
+    validate_target "$target" || { sleep 2; nmap_menu; return; }
+    target_host="$target"
+
+    local output_file="$SCAN_DIR/aggressive_${DATE}.txt"
+    local -a extra; mapfile -t extra < <(_extra_opts)
+
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap -A -T4 -v $target | tee "$output_file"
-    
+    sudo nmap -A -T4 -v "${extra[@]}" "$target" | tee "$output_file"
+
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nmap_menu
@@ -1231,68 +1288,31 @@ resource_usage() {
 real_time_logs() {
     show_header
     echo -e "${YELLOW}=== LOGS EN TEMPS RÉEL ===${NC}"
-    echo -e "${BLUE}Appuyez sur Ctrl+C pour quitter${NC}"
+    echo -e "${BLUE}Appuyez sur Ctrl+C pour revenir au menu${NC}"
     echo ""
-    tail -f /var/log/syslog | grep -i nmap
+
+    # Choix de la source de logs selon ce qui est disponible
+    local log_file=""
+    for candidate in /var/log/syslog /var/log/messages /var/log/auth.log; do
+        if [ -r "$candidate" ]; then
+            log_file="$candidate"
+            break
+        fi
+    done
+
+    # On capture Ctrl+C pour ne pas tuer le script
+    trap ' ' INT
+    if [ -n "$log_file" ]; then
+        tail -f "$log_file" | grep --line-buffered -i nmap
+    else
+        echo -e "${RED}Aucun fichier de log lisible trouvé. Tentative via journalctl...${NC}"
+        journalctl -f 2>/dev/null | grep --line-buffered -i nmap
+    fi
+    trap - INT
+
     monitoring_menu
 }
 
-# Fonction pour les alertes
-alerts() {
-    show_header
-    echo -e "${YELLOW}=== ALERTES ===${NC}"
-    echo ""
-    echo "1. Voir les alertes actives"
-    echo "2. Configurer les seuils d'alerte"
-    echo "3. Activer les notifications"
-    echo "4. Désactiver les notifications"
-    echo "5. Envoyer une notification"
-    echo "6. Configurer les notifications"
-    echo -e "${RED}R${NC} - Retour"
-    
-    read -p "Choisissez une option: " alert_choice
-    case $alert_choice in
-        1) 
-            echo "Aucune alerte active"
-            sleep 2
-            alerts
-            ;;
-        2)
-            echo "Configuration des seuils..."
-            sleep 2
-            alerts
-            ;;
-        3)
-            enable_notifications
-            sleep 2
-            alerts
-            ;;
-        4)
-            disable_notifications
-            sleep 2
-            alerts
-            ;;
-        5)
-            read -p "Entrez le message de notification: " message
-            send_notification "$message"
-            sleep 2
-            alerts
-            ;;
-        6)
-            configure_notifications
-            sleep 2
-            alerts
-            ;;
-        [Rr]) 
-            monitoring_menu
-            ;;
-        *)
-            echo "Option invalide"
-            sleep 2
-            alerts
-            ;;
-    esac
-}
 # Configuration des seuils d'alerte
 ALERT_CONFIG="$HOME/.config/pentest_tools/alert_thresholds.conf"
 
@@ -1487,22 +1507,21 @@ nse_scan() {
     show_header
     echo -e "${YELLOW}=== SCAN NSE: $script_type ===${NC}"
     read -p "Entrez l'adresse IP cible: " target
-    
-    cmd="sudo nmap"
+    validate_target "$target" || { sleep 2; nse_menu; return; }
+    target_host="$target"
+
+    local -a cmd=(sudo nmap)
     case $script_type in
-        "vuln") cmd="$cmd --script vuln" ;;
-        "exploit") cmd="$cmd --script exploit" ;;
-        "auth") cmd="$cmd --script auth" ;;
-        "discovery") cmd="$cmd --script discovery" ;;
-        "safe") cmd="$cmd --script safe" ;;
-        "all") cmd="$cmd --script all" ;;
+        vuln|exploit|auth|discovery|safe|all)
+            cmd+=(--script "$script_type")
+            ;;
     esac
 
-    output_file="$SCAN_DIR/nse_${script_type}_${DATE}.txt"
-    
+    local output_file="$SCAN_DIR/nse_${script_type}_${DATE}.txt"
+
     echo -e "${BLUE}Exécution du scan...${NC}"
-    $cmd $target | tee "$output_file"
-    
+    "${cmd[@]}" "$target" | tee "$output_file"
+
     echo ""
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
@@ -1515,16 +1534,27 @@ custom_nse_scan() {
     echo -e "${YELLOW}=== SCAN NSE PERSONNALISÉ ===${NC}"
     read -p "Entrez le nom du script NSE: " script_name
     read -p "Entrez l'adresse IP cible: " target
-    
-    output_file="$SCAN_DIR/nse_custom_${DATE}.txt"
-    
+    validate_target "$target" || { sleep 2; nse_menu; return; }
+    target_host="$target"
+
+    # On accepte seulement des noms de scripts simples (lettres, chiffres, -, _, ,)
+    if ! [[ "$script_name" =~ ^[A-Za-z0-9_,.\*-]+$ ]]; then
+        echo -e "${RED}Nom de script invalide.${NC}"
+        sleep 2
+        nse_menu
+        return
+    fi
+
+    local output_file="$SCAN_DIR/nse_custom_${DATE}.txt"
+
     echo -e "${BLUE}Exécution du scan...${NC}"
-    sudo nmap --script "$script_name" $target | tee "$output_file"
-    
+    sudo nmap --script "$script_name" "$target" | tee "$output_file"
+
     echo -e "${GREEN}Scan terminé. Résultats sauvegardés dans: $output_file${NC}"
     read -p "Appuyez sur Entrée pour continuer"
     nse_menu
 }
 
 # Point d'entrée du script
+load_alert_thresholds
 main_menu

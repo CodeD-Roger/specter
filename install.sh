@@ -70,7 +70,11 @@ detect_os() {
 # Fonction pour mettre à jour le système
 update_system() {
     echo -e "${YELLOW}Mise à jour du système...${NC}"
-    apt-get update && apt-get upgrade -y
+    if ! apt-get update; then
+        echo -e "${RED}Échec de apt-get update. Vérifiez votre connexion réseau.${NC}"
+        exit 1
+    fi
+    apt-get upgrade -y
     apt-get install -y software-properties-common
 }
 
@@ -83,6 +87,7 @@ install_basic_dependencies() {
         git \
         python3 \
         python3-pip \
+        python3-venv \
         jq \
         nmap \
         wireshark \
@@ -95,34 +100,82 @@ install_basic_dependencies() {
         liblzma-dev \
         whois \
         wkhtmltopdf \
-        dnsutils
+        dnsutils \
+        dirb
 }
 
-# Fonction pour vérifier les installations
+# Préparer l'environnement Python (pip + venv pour outils CVE/vulners)
+setup_python_environment() {
+    echo -e "${YELLOW}Configuration de l'environnement Python...${NC}"
+    apt-get install -y python3 python3-pip python3-venv
+    python3 -m pip install --upgrade pip --break-system-packages 2>/dev/null \
+        || python3 -m pip install --upgrade pip
+}
+
+# Installer vulners-lookup (recherche CVE depuis la base Vulners)
+install_vulners_lookup() {
+    echo -e "${YELLOW}Installation de vulners-lookup...${NC}"
+    if command -v vulners-lookup &> /dev/null; then
+        echo -e "${GREEN}vulners-lookup est déjà installé.${NC}"
+        return
+    fi
+    python3 -m pip install vulners-lookup --break-system-packages 2>/dev/null \
+        || python3 -m pip install vulners-lookup
+}
+
+# Installer des outils complémentaires de recherche CVE
+install_cve_tools() {
+    echo -e "${YELLOW}Installation des outils CVE...${NC}"
+    # cve-bin-tool : analyse de binaires pour CVE connues
+    python3 -m pip install cve-bin-tool --break-system-packages 2>/dev/null \
+        || python3 -m pip install cve-bin-tool || true
+    # searchsploit (exploitdb)
+    if ! command -v searchsploit &> /dev/null; then
+        apt-get install -y exploitdb || true
+    fi
+}
+
+# Fonction unique de vérification des installations
 verify_installations() {
     echo -e "${YELLOW}Vérification des installations...${NC}"
-    
-    # Liste des outils essentiels à vérifier
-    ESSENTIAL_TOOLS=("wireshark" "sslscan" "sqlmap" "nmap" "whois" "wkhtmltopdf" "dig")
-    
+
+    # Outils de base : on vérifie et on réinstalle au besoin via apt
+    ESSENTIAL_TOOLS=("wireshark" "sslscan" "sqlmap" "nmap" "whois" "wkhtmltopdf" "dig" "dirb")
     for tool in "${ESSENTIAL_TOOLS[@]}"; do
-        if command -v $tool &> /dev/null; then
+        if command -v "$tool" &> /dev/null; then
             echo -e "${GREEN}$tool est installé correctement${NC}"
         else
-            echo -e "${RED}$tool n'est pas installé correctement. Installation...${NC}"
+            echo -e "${RED}$tool n'est pas installé. Installation...${NC}"
             case $tool in
-                "dig")
-                    apt-get install -y dnsutils
-                    ;;
-                *)
-                    apt-get install -y $tool
-                    ;;
+                dig) apt-get install -y dnsutils ;;
+                *)   apt-get install -y "$tool" ;;
             esac
         fi
     done
 
-    # Vérification des autres outils spécifiques...
-    # [Le reste de votre code de vérification existant]
+    # Nikto : réinstallation via la fonction dédiée si absent
+    if ! command -v nikto &> /dev/null; then
+        echo -e "${RED}Nikto manquant. Réinstallation...${NC}"
+        install_nikto
+    else
+        echo -e "${GREEN}Nikto est installé correctement${NC}"
+    fi
+
+    # Metasploit
+    if ! command -v msfconsole &> /dev/null; then
+        echo -e "${RED}Metasploit manquant. Réinstallation...${NC}"
+        install_metasploit
+    else
+        echo -e "${GREEN}Metasploit est installé correctement${NC}"
+    fi
+
+    # WPScan
+    if ! command -v wpscan &> /dev/null; then
+        echo -e "${RED}WPScan manquant. Réinstallation...${NC}"
+        install_wpscan
+    else
+        echo -e "${GREEN}WPScan est installé correctement${NC}"
+    fi
 }
 
 # Fonction pour installer des outils supplémentaires si nécessaire
@@ -163,8 +216,12 @@ install_nikto() {
 # Fonction pour installer WPScan
 install_wpscan() {
     echo -e "${YELLOW}Installation de WPScan...${NC}"
-    apt-get install -y ruby ruby-dev
-    gem install wpscan
+    if command -v wpscan &> /dev/null; then
+        echo -e "${GREEN}WPScan est déjà installé.${NC}"
+        return
+    fi
+    apt-get install -y ruby ruby-dev libcurl4-openssl-dev
+    gem install wpscan --no-document
 }
 
 # Fonction pour installer SQLMap
@@ -198,23 +255,23 @@ install_metasploit() {
         libpcap-dev \
         libpq-dev \
         zlib1g-dev \
-        libpcap-dev \
         libsqlite3-dev
 
     # Démarrer et activer PostgreSQL
     systemctl start postgresql
     systemctl enable postgresql
 
-    # Installation de Metasploit via apt
-    echo -e "${YELLOW}Installation de Metasploit via apt...${NC}"
-    
-    # Ajouter le dépôt Metasploit
-    curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall
-    chmod 755 msfinstall
-    ./msfinstall
+    # Installation de Metasploit : on essaie d'abord le paquet apt,
+    # puis le script officiel Rapid7 en repli.
+    echo -e "${YELLOW}Installation de Metasploit...${NC}"
 
-    # Supprimer le script d'installation
-    rm msfinstall
+    if ! apt-get install -y metasploit-framework; then
+        curl -fsSL https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb \
+            -o /tmp/msfinstall
+        chmod 755 /tmp/msfinstall
+        /tmp/msfinstall
+        rm -f /tmp/msfinstall
+    fi
 
     # Initialiser la base de données
     echo -e "${YELLOW}Initialisation de la base de données...${NC}"
@@ -237,57 +294,24 @@ install_metasploit() {
 }
 
 
-# Fonction pour vérifier les installations
-verify_installations() {
-    echo -e "${YELLOW}Vérification des installations...${NC}"
-    
-    # Vérification de Nikto
-    if ! command -v nikto &> /dev/null; then
-        echo -e "${RED}Nikto n'est pas installé correctement. Réinstallation...${NC}"
-        install_nikto
-    else
-        echo -e "${GREEN}Nikto est installé correctement${NC}"
-    fi
-
-    # Vérification de Metasploit
-    if ! command -v msfconsole &> /dev/null; then
-        echo -e "${RED}Metasploit n'est pas installé correctement. Réinstallation...${NC}"
-        install_metasploit
-    else
-        echo -e "${GREEN}Metasploit est installé correctement${NC}"
-    fi
-
-    # Vérification de WPScan
-    if ! command -v wpscan &> /dev/null; then
-        echo -e "${RED}WPScan n'est pas installé correctement. Réinstallation...${NC}"
-        install_wpscan
-    else
-        echo -e "${GREEN}WPScan est installé correctement${NC}"
-    fi
-
-    # Vérification des autres outils
-    BASIC_TOOLS=("wireshark" "sslscan" "sqlmap" "nmap")
-    for tool in "${BASIC_TOOLS[@]}"; do
-        if command -v $tool &> /dev/null; then
-            echo -e "${GREEN}$tool est installé correctement${NC}"
-        else
-            echo -e "${RED}$tool n'est pas installé correctement. Installation...${NC}"
-            apt-get install -y $tool
-        fi
-    done
-}
-
-# Fonction pour configurer les permissions des scripts
+# Fonction pour configurer les permissions des scripts et créer les répertoires
 setup_scripts() {
-    echo -e "${YELLOW}Configuration des scripts...${NC}"
-    
+    echo -e "${YELLOW}Configuration des scripts et des répertoires...${NC}"
+
+    # On se place dans le répertoire du script pour éviter la dépendance au CWD
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
     # Créer les répertoires nécessaires
-    mkdir -p reports
-    mkdir -p vulnerability_reports
-    
-    # Définir les permissions
-    chown -R $SUDO_USER:$SUDO_USER reports vulnerability_reports
-    chmod -R 755 reports vulnerability_reports
+    mkdir -p "$script_dir/reports" "$script_dir/scans" "$script_dir/logs"
+
+    # Définir les permissions : si SUDO_USER est défini, on lui rend la main,
+    # sinon on garde root (cas d'un shell root direct).
+    if [ -n "$SUDO_USER" ] && id "$SUDO_USER" &> /dev/null; then
+        chown -R "$SUDO_USER:$SUDO_USER" \
+            "$script_dir/reports" "$script_dir/scans" "$script_dir/logs"
+    fi
+    chmod -R 755 "$script_dir/reports" "$script_dir/scans" "$script_dir/logs"
 }
 
 # Programme principal

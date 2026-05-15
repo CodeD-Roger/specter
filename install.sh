@@ -64,8 +64,45 @@ apt_try() {
 # Installe via pip (avec fallback --break-system-packages pour PEP 668)
 pip_install() {
     logf "pip install $*"
-    python3 -m pip install --upgrade "$@" >> "$INSTALL_LOG" 2>&1 \
-        || python3 -m pip install --upgrade --break-system-packages "$@" >> "$INSTALL_LOG" 2>&1
+    python3 -m pip install --upgrade --break-system-packages "$@" >> "$INSTALL_LOG" 2>&1
+}
+
+# Installe une application Python isolée via pipx (idéal pour outils CLI complexes
+# comme NetExec qui ont des dépendances conflictuelles avec les paquets apt).
+pipx_install() {
+    logf "pipx install $*"
+    if ! have pipx; then
+        log_warn "pipx manquant, fallback sur pip"
+        pip_install "$@"
+        return
+    fi
+    pipx install --force "$@" >> "$INSTALL_LOG" 2>&1
+}
+
+# Git clone d'un repo dans /opt et création d'un wrapper dans /usr/local/bin
+git_install_tool() {
+    local repo=$1     # https://github.com/...
+    local name=$2     # nom du dossier dans /opt + wrapper
+    local entry=$3    # chemin relatif vers le script principal (ex: Responder.py)
+    local opt_dir="/opt/$name"
+
+    if have "${name,,}" || [ -d "$opt_dir" ]; then
+        log_ok "$name déjà installé"
+        return 0
+    fi
+    log_info "Clone de $name depuis $repo"
+    git clone --depth 1 "$repo" "$opt_dir" >> "$INSTALL_LOG" 2>&1 || {
+        log_warn "Échec clone $name"
+        return 1
+    }
+    if [ -n "$entry" ] && [ -f "$opt_dir/$entry" ]; then
+        cat > "/usr/local/bin/${name,,}" << WRAPPER
+#!/bin/bash
+exec python3 "$opt_dir/$entry" "\$@"
+WRAPPER
+        chmod +x "/usr/local/bin/${name,,}"
+    fi
+    log_ok "$name installé dans $opt_dir"
 }
 
 # Installe un binaire Go (ProjectDiscovery, etc.) dans /usr/local/bin
@@ -132,11 +169,19 @@ update_system() {
 
 # ─── Installations par catégorie ───────────────────────────────────────────
 
+setup_pipx() {
+    # Quand on est root, pipx installe dans /root/.local par défaut → on force
+    # un emplacement global accessible par tous.
+    export PIPX_HOME="/opt/pipx"
+    export PIPX_BIN_DIR="/usr/local/bin"
+    mkdir -p "$PIPX_HOME" "$PIPX_BIN_DIR"
+}
+
 install_base() {
     log_phase "DÉPENDANCES DE BASE"
     local pkgs=(
         curl wget git jq bc unzip
-        python3 python3-pip python3-venv
+        python3 python3-pip python3-venv pipx
         ruby ruby-dev build-essential
         libpq-dev libpcap-dev libsqlite3-dev
         zlib1g-dev liblzma-dev libcurl4-openssl-dev libssl-dev libffi-dev
@@ -204,13 +249,18 @@ install_recon_tools() {
     # amass via go (n'est plus dans apt Ubuntu)
     go_install_bin github.com/owasp-amass/amass/v4/...@master
 
-    # theHarvester via pip (n'est plus dans apt Ubuntu noble)
+    # theHarvester via git + pipx (le paquet theHarvester sur PyPI est obsolète/cassé)
     if ! have theHarvester; then
-        log_info "Installation de theHarvester via pip..."
-        if pip_install theHarvester; then
-            log_ok "theHarvester"
+        log_info "Installation de theHarvester via git..."
+        if [ ! -d /opt/theHarvester ]; then
+            git clone --depth 1 https://github.com/laramies/theHarvester.git /opt/theHarvester \
+                >> "$INSTALL_LOG" 2>&1
+        fi
+        if [ -d /opt/theHarvester ]; then
+            pipx_install /opt/theHarvester && log_ok "theHarvester via pipx" \
+                || log_warn "Échec theHarvester"
         else
-            log_warn "Échec theHarvester"
+            log_warn "Échec clone theHarvester"
         fi
     else
         log_ok "theHarvester déjà installé"
@@ -277,10 +327,23 @@ install_ad_tools() {
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
 
-    # enum4linux-ng remplace enum4linux (retiré d'Ubuntu noble)
-    if ! have enum4linux && ! have enum4linux-ng; then
-        log_info "Installation d'enum4linux-ng via pip..."
-        pip_install enum4linux-ng && log_ok "enum4linux-ng" || log_warn "Échec enum4linux-ng"
+    # enum4linux-ng via git (n'est pas sur PyPI sous ce nom)
+    if ! have enum4linux-ng && ! have enum4linux; then
+        log_info "Installation d'enum4linux-ng via git..."
+        if [ ! -d /opt/enum4linux-ng ]; then
+            git clone --depth 1 https://github.com/cddmp/enum4linux-ng.git /opt/enum4linux-ng \
+                >> "$INSTALL_LOG" 2>&1
+        fi
+        if [ -f /opt/enum4linux-ng/enum4linux-ng.py ]; then
+            cat > /usr/local/bin/enum4linux-ng << 'WRAPPER'
+#!/bin/bash
+exec python3 /opt/enum4linux-ng/enum4linux-ng.py "$@"
+WRAPPER
+            chmod +x /usr/local/bin/enum4linux-ng
+            log_ok "enum4linux-ng installé"
+        else
+            log_warn "Échec enum4linux-ng"
+        fi
     else
         log_ok "enum4linux(-ng) déjà présent"
     fi
@@ -303,18 +366,18 @@ WRAPPER
         log_ok "Responder déjà installé"
     fi
 
-    # impacket (suite complète : secretsdump, GetNPUsers, GetUserSPNs, psexec, etc.)
-    log_info "Installation d'impacket..."
-    if pip_install impacket; then
-        log_ok "impacket installé"
+    # impacket : via apt (python3-impacket) ou pipx en fallback
+    if apt_try python3-impacket; then
+        log_ok "python3-impacket via apt"
     else
-        apt_try python3-impacket && log_ok "python3-impacket via apt"
+        log_info "Installation d'impacket via pipx..."
+        pipx_install impacket && log_ok "impacket via pipx" || log_warn "Échec impacket"
     fi
 
-    # NetExec (successeur de CrackMapExec)
-    if ! have nxc && ! have netexec; then
-        log_info "Installation de NetExec..."
-        if pip_install git+https://github.com/Pennyw0rth/NetExec; then
+    # NetExec via pipx (évite les conflits avec pyparsing/dnspython système)
+    if ! have nxc; then
+        log_info "Installation de NetExec via pipx (peut prendre 1-2 min)..."
+        if pipx_install git+https://github.com/Pennyw0rth/NetExec; then
             log_ok "NetExec installé (binaire: nxc)"
         else
             log_warn "Échec NetExec"
@@ -323,11 +386,19 @@ WRAPPER
         log_ok "NetExec déjà installé"
     fi
 
-    # BloodHound python-ingestor
-    pip_install bloodhound && log_ok "bloodhound-python installé" || log_warn "Échec bloodhound"
+    # BloodHound python ingestor via pipx
+    if ! have bloodhound-python; then
+        pipx_install bloodhound && log_ok "bloodhound-python via pipx" || log_warn "Échec bloodhound"
+    else
+        log_ok "bloodhound-python déjà installé"
+    fi
 
-    # ldapdomaindump
-    pip_install ldapdomaindump && log_ok "ldapdomaindump installé" || log_warn "Échec ldapdomaindump"
+    # ldapdomaindump via pipx
+    if ! have ldapdomaindump; then
+        pipx_install ldapdomaindump && log_ok "ldapdomaindump via pipx" || log_warn "Échec ldapdomaindump"
+    else
+        log_ok "ldapdomaindump déjà installé"
+    fi
 
     # kerbrute (binaire GitHub)
     if ! have kerbrute; then
@@ -359,9 +430,29 @@ WRAPPER
 
 install_cred_tools() {
     log_phase "CREDENTIALS / BRUTE-FORCE"
-    for p in hydra medusa john hashcat hashid crunch seclists; do
+    for p in hydra medusa john hashcat hashid crunch; do
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
+
+    # SecLists : énorme (~1.5 Go), donc via git clone (optionnel)
+    if [ ! -d /usr/share/seclists ] && [ ! -d /opt/SecLists ]; then
+        local avail_kb
+        avail_kb=$(df --output=avail / 2>/dev/null | tail -1)
+        local avail_gb=$((avail_kb / 1024 / 1024))
+        if (( avail_gb > 3 )); then
+            log_info "Clone de SecLists dans /opt/SecLists (~1.5 Go)..."
+            git clone --depth 1 https://github.com/danielmiessler/SecLists.git /opt/SecLists \
+                >> "$INSTALL_LOG" 2>&1 \
+                && ln -sf /opt/SecLists /usr/share/seclists \
+                && log_ok "SecLists installé" \
+                || log_warn "Échec SecLists"
+        else
+            log_warn "Espace insuffisant pour SecLists, skip"
+        fi
+    else
+        log_ok "SecLists déjà installé"
+    fi
+
     # Lien vers rockyou si présent
     if [ -f /usr/share/wordlists/rockyou.txt.gz ] && [ ! -f /usr/share/wordlists/rockyou.txt ]; then
         gunzip -k /usr/share/wordlists/rockyou.txt.gz && log_ok "rockyou.txt décompressé"
@@ -394,12 +485,26 @@ install_exploit_tools() {
         fi
     fi
 
-    # exploitdb / searchsploit
-    if apt_try exploitdb; then log_ok "exploitdb (searchsploit)"; fi
+    # exploitdb / searchsploit : pas dans apt Ubuntu, via git
+    if ! have searchsploit; then
+        log_info "Installation d'exploitdb (searchsploit) via git..."
+        if [ ! -d /opt/exploitdb ]; then
+            git clone --depth 1 https://gitlab.com/exploit-database/exploitdb.git /opt/exploitdb \
+                >> "$INSTALL_LOG" 2>&1
+        fi
+        if [ -f /opt/exploitdb/searchsploit ]; then
+            ln -sf /opt/exploitdb/searchsploit /usr/local/bin/searchsploit
+            log_ok "searchsploit installé"
+        else
+            log_warn "Échec searchsploit"
+        fi
+    else
+        log_ok "searchsploit déjà installé"
+    fi
 
-    # CVE tools
-    pip_install vulners-lookup && log_ok "vulners-lookup" || log_warn "Échec vulners-lookup"
-    pip_install cve-bin-tool && log_ok "cve-bin-tool" || log_warn "Échec cve-bin-tool"
+    # CVE tools : vulners-lookup n'existe pas, on utilise le client vulners directement
+    pipx_install vulners && log_ok "vulners (client Python)" || log_warn "Échec vulners"
+    pipx_install cve-bin-tool && log_ok "cve-bin-tool via pipx" || log_warn "Échec cve-bin-tool"
 }
 
 install_postexpl_tools() {
@@ -476,12 +581,13 @@ install_reporting_tools() {
 
 install_cloud_tools() {
     log_phase "CLOUD (OPTIONNEL)"
-    pip_install prowler && log_ok "prowler" || log_warn "Échec prowler"
-    pip_install scoutsuite && log_ok "scoutsuite" || log_warn "Échec scoutsuite"
+    pipx_install prowler && log_ok "prowler via pipx" || log_warn "Échec prowler"
+    pipx_install scoutsuite && log_ok "scoutsuite via pipx" || log_warn "Échec scoutsuite"
 }
 
 install_web_ui() {
     log_phase "INTERFACE WEB (SPECTER WEB)"
+    # Les deps web restent en pip système (besoin d'être importables par specter_web.py)
     if pip_install fastapi "uvicorn[standard]" websockets pydantic; then
         log_ok "Dépendances Python web installées (fastapi, uvicorn, websockets)"
     else
@@ -540,6 +646,7 @@ main() {
     update_system
 
     install_base
+    setup_pipx
     install_go
     install_scan_tools
     install_recon_tools

@@ -1,78 +1,162 @@
-# Pentest Toolkit
----
-Le script **install.sh** prépare l’environnement nécessaire pour exécuter **specter.sh**, l’outil principal.
+# 👻 SPECTER — Pentest Toolkit
 
-Il effectue les actions suivantes :
+Toolkit red team complet structuré par phases, en CLI et avec une interface web.
 
-- **📦 Installation des dépendances essentielles pour l’exécution des outils de pentesting.**
-- **🔄 Mise à jour et configuration du système pour optimiser la compatibilité.**
-- **🛡 Vérification des installations et réinstallation en cas de besoin.**
-- **🔗 Création des répertoires et permissions nécessaires pour stocker les résultats des scans et des rapports.** 
-
----
-
-## 🎯 Menu interactif permettant :
-
-- **📡 Scans réseau avec nmap (SYN, UDP, ACK, IPv6, etc.)**
-- **📜 Génération de rapports en HTML, XML, CSV et JSON.**
-- **🚀 Exécution de Metasploit, Nikto, SQLmap, Wireshark, etc.**
-- **⚡ Configurations avancées (fragmentation, spoofing, bande passante).**
-- **🔔 Système d'alertes sur les vulnérabilités détectées.**
-- **🚀 Installation et Utilisation**
-
-### 1️⃣ Cloner le dépôt
-
- ```bash
-git clone https://github.com/CodeD-Roger/Pentest-Toolkit.git
-cd Pentest-Toolkit
+```
+   ███████╗██████╗ ███████╗ ██████╗████████╗███████╗██████╗
+   ██╔════╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗
+   ███████╗██████╔╝█████╗  ██║        ██║   █████╗  ██████╔╝
+   ╚════██║██╔═══╝ ██╔══╝  ██║        ██║   ██╔══╝  ██╔══██╗
+   ███████║██║     ███████╗╚██████╗   ██║   ███████╗██║  ██║
+   ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 ```
 
-### 2️⃣ Exécuter le script d'installation
- ```bash
-sudo chmod +x install.sh
+---
+
+## 🎯 Workflow couvert (par phase)
+
+| Phase | Outils principaux |
+|---|---|
+| 🔎 **Reconnaissance** | subfinder, amass, assetfinder, httpx, dnsx, katana, whatweb, theHarvester, waybackurls |
+| 🛰️ **Scan réseau** | nmap (7 modes), masscan, naabu, NSE (vuln/exploit/auth/discovery/safe/custom) |
+| 🌐 **Web** | ffuf, gobuster, dirb, nuclei, nikto, wapiti, sqlmap, wpscan, sslscan |
+| 🏢 **Active Directory** | NetExec (nxc), impacket complet, BloodHound, kerbrute, evil-winrm, responder, enum4linux-ng, smbmap, ldapdomaindump |
+| 🔑 **Credentials** | hydra, medusa, john, hashcat, hashid, crunch, SecLists, rockyou |
+| 💣 **Exploitation** | Metasploit, searchsploit, cve-bin-tool, vulners |
+| 🚇 **Post-exploitation** | chisel, ligolo-ng, proxychains, socat, serveurs HTTP/SMB |
+| 📡 **Capture trafic** | wireshark, tshark, tcpdump, responder, ettercap |
+| ☁️ **Cloud** | prowler, scoutsuite |
+| 📊 **Reporting** | HTML (thème dark), XML, CSV, JSON, PDF |
+
+---
+
+## 🚀 Installation
+
+### 1️⃣ Cloner et préparer
+
+```bash
+git clone https://github.com/CodeD-Roger/Pentest-Toolkit.git
+cd Pentest-Toolkit
+sudo chmod +x install.sh specter.sh
+```
+
+### 2️⃣ Installer (tout par défaut)
+
+```bash
 sudo ./install.sh
 ```
 
-### 3️⃣ Lancer l'outil principal (CLI)
- ```bash
+### 🔧 Installation sélective
 
-chmod +x specter.sh
+L'installer accepte plusieurs flags pour personnaliser l'installation :
+
+```bash
+sudo ./install.sh --help              # Aide complète
+sudo ./install.sh --list              # Liste les 11 groupes installables
+sudo ./install.sh --skip cloud,ad     # Installe tout sauf le cloud et l'AD
+sudo ./install.sh --only web,recon    # Installe SEULEMENT le web et la recon
+sudo ./install.sh --skip nuclei,amass # Skip à l'outil près
+sudo ./install.sh --interactive       # Menu à cases à cocher (whiptail)
+```
+
+| Groupe | Contenu |
+|---|---|
+| `scan` | nmap, masscan, naabu |
+| `recon` | subfinder, amass, httpx, dnsx, theHarvester, ... |
+| `web` | ffuf, gobuster, dirb, nuclei, nikto, sqlmap, wpscan, ... |
+| `ad` | NetExec, impacket, BloodHound, kerbrute, evil-winrm, ... |
+| `creds` | hydra, john, hashcat, SecLists, ... |
+| `exploit` | Metasploit, searchsploit, cve-bin-tool |
+| `postexpl` | chisel, ligolo-ng, proxychains |
+| `traffic` | wireshark, tshark, tcpdump, ettercap |
+| `reporting` | wkhtmltopdf, pandoc |
+| `cloud` | prowler, scoutsuite |
+| `web-ui` | fastapi, uvicorn, websockets (pour le serveur web) |
+
+> Les dépendances de base (curl, git, python3, go, pipx) sont **toujours** installées — elles sont prérequises.
+
+> L'installer est **idempotent** : le relancer skip ce qui est déjà installé. Les erreurs apt/pip sont logguées dans `logs/install.log`.
+
+---
+
+## 🖥️ Lancer le CLI
+
+```bash
 ./specter.sh
 ```
 
-### 4️⃣ (Optionnel) Lancer l'interface web SPECTER
- ```bash
+Menu principal structuré par phases red team. La cible et le domaine sont **mémorisés entre les outils** (plus besoin de retaper).
+
+Le viewer de résultats colore automatiquement les ports (open/closed/filtered), les sévérités (critical/high/medium/low) et les CVE.
+
+---
+
+## 🌐 Lancer l'interface web
+
+Deux options :
+
+**Option 1 — depuis le CLI** : menu principal → `[W] Serveur Web` → `2) Démarrer en arrière-plan`
+
+**Option 2 — direct** :
+
+```bash
 python3 specter_web.py
 ```
+
 Le token d'authentification s'affiche dans la console. Ouvre `http://127.0.0.1:8765` dans ton navigateur et colle le token.
 
-Depuis le CLI : option **W** dans le menu principal pour démarrer le serveur web en arrière-plan.
----
-## 📜 Fonctionnalités détaillées
-🔍 Scans disponibles
-- **Type de scan	Description**
-- **SYN Scan	Scan furtif (par défaut)**
-- **UDP Scan	Détection des services UDP ouverts**
-- **ACK Scan	Détection des règles de firewall**
-- **IPv6 Scan	Scan de réseaux IPv6**
-- **Scan Agressif	Collecte maximale d’informations**
-- **Scan Ultra Discret	Techniques avancées d’évasion**
+### Fonctionnalités web
 
-#### 📊 Rapports et exports
-#### 🔄 Génération de rapports détaillés en HTML, XML, CSV, et JSON.
-#### 📑 Affichage et analyse des résultats de scan.
-#### 📉 Statistiques et tendances des vulnérabilités.
+- **Dashboard** avec stats globales et pipeline FULL RECON 1-clic (subfinder → dnsx → httpx)
+- **Streaming temps réel** des scans via WebSocket (colorisation live)
+- **Explorateur de résultats** unifié (Nmap, Recon, Web, AD, Loot)
+- **Modal viewer** avec colorisation des sorties
+- **Auth par token** (généré au 1er run, stocké dans `logs/.web_token`)
+- **Bind 127.0.0.1 par défaut** (`SPECTER_HOST=0.0.0.0 SPECTER_PORT=8888 python3 specter_web.py` pour modifier)
 
 ---
-## 🛠️ Outils complémentaires
-Metasploit : Framework d’exploitation.
-Nikto : Scanner web.
-SQLmap : Détection et exploitation de vulnérabilités SQLi.
-Wireshark : Analyse du trafic réseau.
 
-## 📷 Captures d’écran  
+## 📁 Structure du projet
 
-Voici un aperçu de l'outil **Pentest Toolkit** :
+```
+Pentest-Toolkit/
+├── specter.sh            # CLI principal
+├── specter_web.py        # Backend FastAPI
+├── install.sh            # Installer (avec --skip/--only/--interactive)
+├── web/                  # Frontend (HTML/CSS/JS dark theme)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+├── scans/
+│   ├── nmap/             # Scans Nmap, masscan, naabu, NSE
+│   ├── recon/            # Sous-domaines, DNS, OSINT, HTTP probing
+│   ├── web/              # ffuf, nuclei, nikto, sqlmap, ...
+│   └── ad/               # NetExec, BloodHound, enum4linux, ...
+├── reports/              # Rapports HTML/PDF/CSV/JSON/XML générés
+├── logs/                 # Logs d'install, token web, alertes
+├── loot/                 # Hashes, credentials, secretsdump
+└── wordlists/            # Wordlists custom (crunch, etc.)
+```
+
+---
+
+## 🛠 Prérequis
+
+- **Système** : Debian, Ubuntu (testé sur 24.04 LTS), Kali
+- **Espace disque** : **6 Go minimum** recommandé (l'installer abort sous 3 Go)
+- **Privilèges** : root pour `install.sh` (apt, configuration système)
+
+---
+
+## ⚠️ Avertissement
+
+⚠️ **À utiliser uniquement sur des systèmes et réseaux pour lesquels tu as une autorisation écrite explicite.**
+
+L'usage de ces outils sur des systèmes tiers sans consentement est **illégal** dans la plupart des juridictions et peut entraîner des poursuites pénales.
+
+---
+
+## 📷 Captures d'écran
 
 | **Menu principal** | **Visualisation des scans** |
 |-------------------|---------------------------|
@@ -81,11 +165,3 @@ Voici un aperçu de l'outil **Pentest Toolkit** :
 | **Scan NSE** | **Monitoring** |
 |-------------|--------------|
 | ![image](https://github.com/user-attachments/assets/f8694f60-79ab-46fc-a166-13cb45b13858) | ![image](https://github.com/user-attachments/assets/605ac2f1-9ea4-4323-becc-666642e75ce2) |
-
----
-## 🛠 Prérequis  
-✅ **Système** : Debian / Ubuntu  
-
-## ⚠️ Avertissement  
-⚠ **À utiliser uniquement sur des réseaux et systèmes autorisés !**  
-L’usage de cet outil sur des systèmes tiers **sans consentement explicite** peut être **illégal**.

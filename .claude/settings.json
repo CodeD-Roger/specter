@@ -9,7 +9,11 @@
       "Bash(bash -n \"c:/Users/schems.kerdoncuff/Downloads/Pentest-Toolkit/specter.sh\")",
       "Bash(bash -n specter.sh)",
       "Bash(bash -n install.sh)",
-      "Bash(python3 -m py_compile specter_web.py)"
+      "Bash(python3 -m py_compile specter_web.py)",
+      "Bash(bash install.sh --help)",
+      "Bash(bash install.sh --list)",
+      "Bash(bash install.sh --foo)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

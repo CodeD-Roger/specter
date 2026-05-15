@@ -8,15 +8,15 @@
 set -u
 
 # ─── Couleurs ──────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+MAGENTA=$'\033[0;35m'
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+NC=$'\033[0m'
 
 # ─── Bannière ──────────────────────────────────────────────────────────────
 print_banner() {
@@ -54,6 +54,11 @@ logf() { echo "[$(date '+%H:%M:%S')] $*" >> "$INSTALL_LOG" 2>/dev/null; }
 
 # Tente d'installer un paquet apt ; logge les erreurs dans logs/install.log
 apt_try() {
+    # Skip si --skip <nom>
+    if declare -F should_skip_tool > /dev/null && should_skip_tool "$1"; then
+        log_warn "Skip outil : $1"
+        return 1
+    fi
     if dpkg -s "$1" &> /dev/null; then
         return 0
     fi
@@ -110,6 +115,11 @@ go_install_bin() {
     local pkg=$1
     local name
     name=$(basename "${pkg%@*}")
+    # Skip si --skip <nom>
+    if declare -F should_skip_tool > /dev/null && should_skip_tool "$name"; then
+        log_warn "Skip outil : $name"
+        return 1
+    fi
     if have "$name"; then
         log_ok "$name déjà installé"
         return 0
@@ -218,24 +228,6 @@ install_scan_tools() {
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec : $p"; fi
     done
 
-    # rustscan : binaire .deb depuis GitHub
-    if ! have rustscan; then
-        log_info "Installation de rustscan..."
-        local url
-        url=$(curl -s https://api.github.com/repos/RustScan/RustScan/releases/latest \
-              | grep -oP '"browser_download_url": "\K[^"]+amd64\.deb' | head -1)
-        if [ -n "$url" ]; then
-            curl -sL "$url" -o /tmp/rustscan.deb \
-                && dpkg -i /tmp/rustscan.deb &> /dev/null \
-                && rm -f /tmp/rustscan.deb \
-                && log_ok "rustscan installé"
-        else
-            log_warn "Échec rustscan (release non trouvée)"
-        fi
-    else
-        log_ok "rustscan déjà installé"
-    fi
-
     # naabu (ProjectDiscovery)
     go_install_bin github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 }
@@ -289,17 +281,6 @@ install_web_tools() {
 
     # ffuf via go (le paquet apt est souvent ancien)
     go_install_bin github.com/ffuf/ffuf/v2@latest
-
-    # feroxbuster (binaire officiel)
-    if ! have feroxbuster; then
-        log_info "Installation de feroxbuster..."
-        curl -sL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh \
-            | bash -s -- --bin /usr/local/bin &> /dev/null \
-            && log_ok "feroxbuster installé" \
-            || log_warn "Échec feroxbuster"
-    else
-        log_ok "feroxbuster déjà installé"
-    fi
 
     # nuclei + templates
     go_install_bin github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
@@ -612,9 +593,9 @@ setup_directories() {
 verify_installations() {
     log_phase "VÉRIFICATION FINALE"
     local checks=(
-        nmap masscan rustscan
+        nmap masscan
         subfinder httpx dnsx amass theHarvester whatweb
-        ffuf gobuster feroxbuster nuclei nikto dirb sqlmap wapiti wpscan
+        ffuf gobuster nuclei nikto dirb sqlmap wapiti wpscan
         impacket-secretsdump nxc kerbrute evil-winrm bloodhound-python responder smbclient
         enum4linux-ng smbmap hashid
         hydra john hashcat
@@ -637,28 +618,251 @@ verify_installations() {
     echo -e "${BOLD}${GREEN}Outils OK : $ok${NC}  ${BOLD}${YELLOW}Manquants : $ko${NC}"
 }
 
+# ═══════════════════════════════════════════════════════════════════════════
+#                       SÉLECTION DES GROUPES / OUTILS
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Listes globales remplies par le parsing d'arguments
+declare -a SKIP_LIST=()
+declare -a ONLY_LIST=()
+INTERACTIVE=0
+
+# Groupes installables (base et go sont toujours installés)
+declare -a INSTALLABLE_GROUPS=(scan recon web ad creds exploit postexpl traffic reporting cloud web-ui)
+
+# Description courte de chaque groupe
+group_desc() {
+    case $1 in
+        scan)      echo "Scan réseau (nmap, masscan, naabu)" ;;
+        recon)     echo "Reconnaissance (subfinder, amass, httpx, dnsx, theHarvester...)" ;;
+        web)       echo "Web (ffuf, gobuster, dirb, nuclei, nikto, sqlmap, wpscan...)" ;;
+        ad)        echo "Active Directory (NetExec, impacket, BloodHound, kerbrute, evil-winrm...)" ;;
+        creds)     echo "Credentials (hydra, john, hashcat, SecLists)" ;;
+        exploit)   echo "Exploitation (Metasploit, searchsploit, cve-bin-tool)" ;;
+        postexpl)  echo "Post-exploitation (chisel, ligolo-ng, proxychains)" ;;
+        traffic)   echo "Capture trafic (wireshark, tshark, tcpdump, ettercap)" ;;
+        reporting) echo "Reporting (wkhtmltopdf, pandoc)" ;;
+        cloud)     echo "Cloud (prowler, scoutsuite)" ;;
+        web-ui)    echo "Interface web SPECTER (fastapi, uvicorn, websockets)" ;;
+        *)         echo "" ;;
+    esac
+}
+
+# Renvoie 0 (vrai) si le groupe doit être skippé
+should_skip_group() {
+    local g=$1
+    # Mode --only : on installe SEULEMENT ce qui est dans ONLY_LIST
+    if [ ${#ONLY_LIST[@]} -gt 0 ]; then
+        local found=0
+        for o in "${ONLY_LIST[@]}"; do
+            [ "$o" = "$g" ] && found=1 && break
+        done
+        (( found == 0 )) && return 0
+    fi
+    # Mode --skip : on saute si présent dans SKIP_LIST
+    for s in "${SKIP_LIST[@]}"; do
+        [ "$s" = "$g" ] && return 0
+    done
+    return 1
+}
+
+# Renvoie 0 si un outil individuel doit être skippé
+should_skip_tool() {
+    local t=$1
+    for s in "${SKIP_LIST[@]}"; do
+        [ "$s" = "$t" ] && return 0
+    done
+    return 1
+}
+
+# Marque un groupe comme skippé (pour le log)
+phase_skipped() {
+    echo -e "\n${YELLOW}${BOLD}── SKIP groupe : $1 ── ${DIM}($(group_desc "$1"))${NC}"
+}
+
+# ─── Help / List / Interactive ─────────────────────────────────────────────
+
+show_help() {
+    cat << EOF
+${BOLD}SPECTER Toolkit — Installer${NC}
+
+${BOLD}USAGE${NC}
+    sudo ./install.sh [OPTIONS]
+
+${BOLD}DESCRIPTION${NC}
+    Installe le toolkit SPECTER. Par défaut, installe TOUS les outils.
+    Utilise --skip ou --only pour contrôler ce qui est installé.
+
+${BOLD}OPTIONS${NC}
+    -h, --help              Affiche cette aide
+    -l, --list              Liste les groupes et leurs outils
+    -i, --interactive       Sélection interactive (menu à cases à cocher)
+    -s, --skip <LISTE>      Groupes ou outils à NE PAS installer (séparés par virgule)
+    -o, --only <LISTE>      Groupes à installer (exclusif, séparés par virgule)
+
+${BOLD}GROUPES DISPONIBLES${NC}
+    scan, recon, web, ad, creds, exploit, postexpl, traffic, reporting, cloud, web-ui
+
+${BOLD}EXEMPLES${NC}
+    ${GREEN}sudo ./install.sh${NC}
+        Installe tout
+
+    ${GREEN}sudo ./install.sh --skip cloud,reporting${NC}
+        Installe tout sauf le cloud et le reporting
+
+    ${GREEN}sudo ./install.sh --only web,recon${NC}
+        Installe uniquement les phases web et reconnaissance
+
+    ${GREEN}sudo ./install.sh --skip nuclei,amass${NC}
+        Installe tout sauf ces 2 outils
+
+    ${GREEN}sudo ./install.sh --interactive${NC}
+        Lance le menu interactif (whiptail)
+
+${BOLD}NOTES${NC}
+    - Les dépendances de base (curl, git, python3, go) sont toujours installées.
+    - --skip et --only sont mutuellement exclusifs ; si les deux sont fournis,
+      --only l'emporte.
+EOF
+}
+
+show_list() {
+    echo -e "${BOLD}${CYAN}Groupes installables :${NC}\n"
+    for g in "${INSTALLABLE_GROUPS[@]}"; do
+        printf "  ${GREEN}%-10s${NC} ${DIM}%s${NC}\n" "$g" "$(group_desc "$g")"
+    done
+    echo ""
+    echo -e "${DIM}Pour skipper un groupe : sudo ./install.sh --skip <nom>${NC}"
+    echo -e "${DIM}Pour n'installer que certains : sudo ./install.sh --only <nom,...>${NC}"
+}
+
+run_interactive() {
+    if ! have whiptail; then
+        log_warn "whiptail manquant — fallback sur sélection texte"
+        echo ""
+        echo -e "${BOLD}Coche les groupes à installer (espace pour toggle, entrée pour valider)${NC}"
+        local chosen=()
+        for g in "${INSTALLABLE_GROUPS[@]}"; do
+            read -p "  Installer ${BOLD}$g${NC} ? ($(group_desc "$g")) [O/n] " yn
+            if [[ ! "$yn" =~ ^[nN]$ ]]; then
+                chosen+=("$g")
+            fi
+        done
+        ONLY_LIST=("${chosen[@]}")
+        return
+    fi
+
+    # Whiptail checklist
+    local items=()
+    for g in "${INSTALLABLE_GROUPS[@]}"; do
+        items+=("$g" "$(group_desc "$g")" "ON")
+    done
+    local result
+    result=$(whiptail --title "SPECTER Installer" \
+        --checklist "Sélectionne les groupes à installer (Espace pour toggle, Tab pour OK)" \
+        20 78 11 \
+        "${items[@]}" \
+        3>&1 1>&2 2>&3) || { echo "Annulé."; exit 0; }
+    # Result : "scan" "recon" "web" → split en array
+    ONLY_LIST=()
+    for word in $result; do
+        ONLY_LIST+=("${word//\"/}")
+    done
+    if [ ${#ONLY_LIST[@]} -eq 0 ]; then
+        echo "Aucun groupe sélectionné, abandon."
+        exit 0
+    fi
+}
+
+# ─── Parsing des arguments ─────────────────────────────────────────────────
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)         show_help; exit 0 ;;
+            -l|--list)         show_list; exit 0 ;;
+            -i|--interactive)  INTERACTIVE=1; shift ;;
+            -s|--skip)
+                IFS=',' read -ra SKIP_LIST <<< "$2"
+                shift 2
+                ;;
+            -o|--only)
+                IFS=',' read -ra ONLY_LIST <<< "$2"
+                shift 2
+                ;;
+            --skip=*)
+                IFS=',' read -ra SKIP_LIST <<< "${1#*=}"
+                shift
+                ;;
+            --only=*)
+                IFS=',' read -ra ONLY_LIST <<< "${1#*=}"
+                shift
+                ;;
+            *)
+                log_err "Option inconnue : $1"
+                echo "Utilise --help pour l'aide."
+                exit 1
+                ;;
+        esac
+    done
+}
+
 # ─── Programme principal ───────────────────────────────────────────────────
+
+# Exécute une phase si pas skippée
+run_phase() {
+    local group=$1
+    local fn=$2
+    if should_skip_group "$group"; then
+        phase_skipped "$group"
+        return
+    fi
+    "$fn"
+}
+
 main() {
+    parse_args "$@"
+
     print_banner
     check_root
     detect_os
     check_disk_space
+
+    # En mode interactif, on demande maintenant ce qu'il faut installer
+    if (( INTERACTIVE )); then
+        run_interactive
+    fi
+
+    # Affiche le plan d'install
+    echo -e "\n${BOLD}${CYAN}Plan d'installation :${NC}"
+    if [ ${#ONLY_LIST[@]} -gt 0 ]; then
+        echo -e "  Mode ${BOLD}--only${NC}, groupes : ${GREEN}${ONLY_LIST[*]}${NC}"
+    elif [ ${#SKIP_LIST[@]} -gt 0 ]; then
+        echo -e "  Mode ${BOLD}--skip${NC}, exclusions : ${YELLOW}${SKIP_LIST[*]}${NC}"
+    else
+        echo -e "  Mode ${BOLD}complet${NC} (tous les groupes)"
+    fi
+    sleep 1
+
     update_system
 
+    # Phases toujours installées (prérequis)
     install_base
     setup_pipx
     install_go
-    install_scan_tools
-    install_recon_tools
-    install_web_tools
-    install_ad_tools
-    install_cred_tools
-    install_exploit_tools
-    install_postexpl_tools
-    install_traffic_tools
-    install_reporting_tools
-    install_cloud_tools
-    install_web_ui
+
+    # Phases optionnelles via --skip / --only
+    run_phase scan      install_scan_tools
+    run_phase recon     install_recon_tools
+    run_phase web       install_web_tools
+    run_phase ad        install_ad_tools
+    run_phase creds     install_cred_tools
+    run_phase exploit   install_exploit_tools
+    run_phase postexpl  install_postexpl_tools
+    run_phase traffic   install_traffic_tools
+    run_phase reporting install_reporting_tools
+    run_phase cloud     install_cloud_tools
+    run_phase web-ui    install_web_ui
 
     setup_directories
     verify_installations

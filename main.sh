@@ -30,10 +30,21 @@ target_host=""
 # Fonction pour afficher le titre
 show_header() {
     clear
-    echo -e "${BLUE}====================================="
-    echo -e "                PENTEST        "
-    echo -e "=====================================${NC}"
-    echo ""
+    echo -e "${CYAN}"
+    cat << 'EOF'
+    ╔═══════════════════════════════════════════════════════════════════╗
+    ║                                                                   ║
+    ║   ██████╗ ███████╗███╗   ██╗████████╗███████╗███████╗████████╗   ║
+    ║   ██╔══██╗██╔════╝████╗  ██║╚══██╔══╝██╔════╝██╔════╝╚══██╔══╝   ║
+    ║   ██████╔╝█████╗  ██╔██╗ ██║   ██║   █████╗  ███████╗   ██║      ║
+    ║   ██╔═══╝ ██╔══╝  ██║╚██╗██║   ██║   ██╔══╝  ╚════██║   ██║      ║
+    ║   ██║     ███████╗██║ ╚████║   ██║   ███████╗███████║   ██║      ║
+    ║   ╚═╝     ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝   ╚═╝      ║
+    ║                                                                   ║
+    ║                       T O O L K I T                               ║
+    ╚═══════════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
 }
 
 # Menu des outils complémentaires
@@ -998,47 +1009,141 @@ nse_menu() {
 
 }
 
+# Couleurs en gras pour le visuel
+BOLD='\033[1m'
+DIM='\033[2m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+
+# Renvoie la taille humaine d'un fichier (KB, MB, ...)
+_human_size() {
+    local bytes=$1
+    if   (( bytes < 1024 ));         then printf "%dB"   "$bytes"
+    elif (( bytes < 1048576 ));      then printf "%.1fKB" "$(echo "$bytes/1024" | bc -l)"
+    elif (( bytes < 1073741824 ));   then printf "%.1fMB" "$(echo "$bytes/1048576" | bc -l)"
+    else                                  printf "%.1fGB" "$(echo "$bytes/1073741824" | bc -l)"
+    fi
+}
+
+# Colorise une sortie nmap : ports open/closed/filtered, sévérités, headers
+_colorize_scan_output() {
+    sed -E \
+        -e "s/(open[[:space:]])/$(printf "${GREEN}")\1$(printf "${NC}")/g" \
+        -e "s/(closed[[:space:]])/$(printf "${RED}")\1$(printf "${NC}")/g" \
+        -e "s/(filtered[[:space:]])/$(printf "${YELLOW}")\1$(printf "${NC}")/g" \
+        -e "s/(VULNERABLE[^[:space:]]*)/$(printf "${RED}${BOLD}")\1$(printf "${NC}")/gI" \
+        -e "s/(CRITICAL|HIGH)/$(printf "${RED}${BOLD}")\1$(printf "${NC}")/g" \
+        -e "s/(MEDIUM|WARNING)/$(printf "${YELLOW}")\1$(printf "${NC}")/g" \
+        -e "s/(LOW|INFO)/$(printf "${BLUE}")\1$(printf "${NC}")/g" \
+        -e "s/(CVE-[0-9]{4}-[0-9]+)/$(printf "${MAGENTA}${BOLD}")\1$(printf "${NC}")/g" \
+        -e "s/(Nmap scan report for[^|]*)/$(printf "${CYAN}${BOLD}")\1$(printf "${NC}")/g" \
+        -e "s/^(PORT[[:space:]]+STATE.*)/$(printf "${BOLD}${WHITE}")\1$(printf "${NC}")/" \
+        -e "s/(Host is up[^|]*)/$(printf "${GREEN}")\1$(printf "${NC}")/g"
+}
+
+# Affiche un en-tête joli en boîte unicode
+_print_box() {
+    local title=$1
+    local width=${2:-70}
+    local pad=$(( width - ${#title} - 4 ))
+    (( pad < 0 )) && pad=0
+    printf "${CYAN}┌"
+    printf '─%.0s' $(seq 1 $((width - 2)))
+    printf "┐${NC}\n"
+    printf "${CYAN}│${BOLD}${WHITE} %s %s${CYAN}│${NC}\n" "$title" "$(printf ' %.0s' $(seq 1 $pad))"
+    printf "${CYAN}└"
+    printf '─%.0s' $(seq 1 $((width - 2)))
+    printf "┘${NC}\n"
+}
+
 view_scan_results() {
     local scan_type=${1:-Nmap}  # "Nmap" ou "NSE"
     show_header
-    echo -e "${YELLOW}=== RÉSULTATS DES SCANS $scan_type ===${NC}"
 
-    # Sélection du bon répertoire (variables globales déjà initialisées)
     local scan_dir
+    local icon
     if [ "$scan_type" == "Nmap" ]; then
         scan_dir="$SCAN_DIR"
+        icon="🛰️ "
     else
         scan_dir="$NSE_SCAN_DIR"
+        icon="🔍"
     fi
 
-    # Vérification de l'existence des scans (en ignorant .gitkeep)
+    _print_box "${icon} RÉSULTATS DES SCANS ${scan_type^^}" 70
+    echo ""
+
+    # Liste des fichiers (tri du plus récent au plus ancien)
     local files=()
     while IFS= read -r -d '' f; do
-        files+=("$(basename "$f")")
-    done < <(find "$scan_dir" -maxdepth 1 -type f -not -name '.gitkeep' -print0 2>/dev/null)
+        files+=("$f")
+    done < <(find "$scan_dir" -maxdepth 1 -type f -not -name '.gitkeep' -printf '%T@ %p\0' 2>/dev/null \
+             | sort -z -rn | sed -z 's/^[0-9.]* //')
 
     if [ ${#files[@]} -eq 0 ]; then
-        echo "Aucun scan enregistré trouvé."
-        sleep 2
+        echo -e "  ${YELLOW}⚠  Aucun scan enregistré dans ${DIM}$scan_dir${NC}"
+        echo ""
+        read -p "  Appuyez sur Entrée pour revenir..."
         [[ "$scan_type" == "Nmap" ]] && nmap_menu || nse_menu
         return
     fi
 
-    # Affichage des fichiers
-    echo "Scans disponibles :"
-    echo "--------------------"
+    # Table d'en-tête
+    printf "  ${BOLD}${WHITE}%-4s %-42s %10s %16s${NC}\n" "N°" "Fichier" "Taille" "Date"
+    printf "  ${DIM}%s${NC}\n" "────────────────────────────────────────────────────────────────────────────"
+
+    local i name size date_h
     for i in "${!files[@]}"; do
-        echo "$((i+1)) - ${files[$i]}"
+        name=$(basename "${files[$i]}")
+        size=$(stat -c%s "${files[$i]}" 2>/dev/null || wc -c < "${files[$i]}")
+        date_h=$(date -r "${files[$i]}" "+%Y-%m-%d %H:%M" 2>/dev/null || stat -c%y "${files[$i]}" 2>/dev/null | cut -d. -f1)
+        # Tronque le nom si trop long
+        local short_name="$name"
+        if (( ${#short_name} > 42 )); then
+            short_name="${short_name:0:39}..."
+        fi
+        printf "  ${GREEN}%-4s${NC} %-42s ${CYAN}%10s${NC} ${DIM}%16s${NC}\n" \
+               "$((i+1))" "$short_name" "$(_human_size "$size")" "$date_h"
     done
 
+    printf "  ${DIM}%s${NC}\n" "────────────────────────────────────────────────────────────────────────────"
     echo ""
-    read -p "Entrez le numéro du fichier à afficher ('S' pour supprimer, 'R' pour retour) : " file_choice
+    echo -e "  ${BOLD}Actions :${NC} ${GREEN}[N°]${NC} afficher  ${YELLOW}[S]${NC} supprimer  ${RED}[R]${NC} retour"
+    echo ""
+    read -p "  ❯ Votre choix : " file_choice
 
     if [[ "$file_choice" =~ ^[0-9]+$ ]] && [ "$file_choice" -ge 1 ] && [ "$file_choice" -le "${#files[@]}" ]; then
-        selected_file="${files[$((file_choice-1))]}"
-        echo -e "\n${CYAN}=== Contenu du fichier $selected_file ===${NC}\n"
-        cat "$scan_dir/$selected_file"
+        local selected_path="${files[$((file_choice-1))]}"
+        local selected_file
+        selected_file=$(basename "$selected_path")
+        local fsize fmtime fmtime_h
+        fsize=$(stat -c%s "$selected_path" 2>/dev/null || wc -c < "$selected_path")
+        fmtime_h=$(date -r "$selected_path" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || stat -c%y "$selected_path" 2>/dev/null | cut -d. -f1)
+
+        clear
+        _print_box "📄 $selected_file" 70
+        echo -e "  ${DIM}Taille  :${NC} $(_human_size "$fsize")"
+        echo -e "  ${DIM}Modifié :${NC} $fmtime_h"
+        echo -e "  ${DIM}Chemin  :${NC} $selected_path"
         echo ""
+        printf "${CYAN}"
+        printf '─%.0s' $(seq 1 70)
+        printf "${NC}\n"
+
+        # Affichage avec coloration via less si disponible, sinon stdout direct
+        if command -v less &> /dev/null; then
+            _colorize_scan_output < "$selected_path" | less -R
+        else
+            _colorize_scan_output < "$selected_path"
+        fi
+
+        printf "${CYAN}"
+        printf '─%.0s' $(seq 1 70)
+        printf "${NC}\n"
+        echo ""
+        read -p "  Appuyez sur Entrée pour revenir à la liste..."
+        view_scan_results "$scan_type"
+        return
     elif [[ "$file_choice" =~ ^[Ss]$ ]]; then
         delete_scan_file "$scan_type"
         return
@@ -1046,11 +1151,11 @@ view_scan_results() {
         [[ "$scan_type" == "Nmap" ]] && nmap_menu || nse_menu
         return
     else
-        echo -e "${RED}Option invalide.${NC}"
+        echo -e "  ${RED}✗ Option invalide${NC}"
+        sleep 1
+        view_scan_results "$scan_type"
+        return
     fi
-
-    read -p "Appuyez sur Entrée pour revenir au menu..."
-    [[ "$scan_type" == "Nmap" ]] && nmap_menu || nse_menu
 }
 delete_scan_file() {
     local scan_type=$1  # "Nmap" ou "NSE"

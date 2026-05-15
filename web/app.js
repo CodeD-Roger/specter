@@ -13,12 +13,25 @@ let CURRENT_WS = null;
 // ─── Auth ──────────────────────────────────────────────────────────────
 
 async function tryLogin(token) {
-    const r = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-    });
-    return r.ok;
+    try {
+        const r = await fetch("/api/auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+        });
+        if (!r.ok) {
+            let detail = `HTTP ${r.status}`;
+            try {
+                const j = await r.json();
+                if (j && j.detail) detail = j.detail;
+            } catch {}
+            return { ok: false, error: detail };
+        }
+        return { ok: true };
+    } catch (e) {
+        console.error("tryLogin network error:", e);
+        return { ok: false, error: "Erreur réseau : " + e.message };
+    }
 }
 
 async function api(path, opts = {}) {
@@ -37,29 +50,68 @@ async function api(path, opts = {}) {
 // ─── Init ──────────────────────────────────────────────────────────────
 
 window.addEventListener("DOMContentLoaded", async () => {
+    console.log("[SPECTER] Init...");
     $("#login-btn").addEventListener("click", doLogin);
     $("#token-input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") doLogin();
+        if (e.key === "Enter") {
+            e.preventDefault();
+            doLogin();
+        }
     });
 
+    // Tente auto-login si token déjà stocké (mais n'empêche pas le formulaire de marcher)
     if (TOKEN) {
-        const ok = await tryLogin(TOKEN);
-        if (ok) return launchApp();
+        console.log("[SPECTER] Auto-login attempt with stored token...");
+        const r = await tryLogin(TOKEN);
+        if (r.ok) {
+            console.log("[SPECTER] Auto-login OK");
+            return launchApp();
+        }
+        console.log("[SPECTER] Auto-login failed:", r.error, "— resetting");
+        localStorage.removeItem("specter_token");
+        TOKEN = "";
     }
     $("#token-input").focus();
 });
 
 async function doLogin() {
-    const t = $("#token-input").value.trim();
-    if (!t) return;
-    const ok = await tryLogin(t);
-    if (!ok) {
-        $("#login-error").textContent = "Token invalide";
+    const btn = $("#login-btn");
+    const input = $("#token-input");
+    const errEl = $("#login-error");
+
+    const t = input.value.trim();
+    errEl.textContent = "";
+
+    if (!t) {
+        errEl.textContent = "Saisis le token affiché dans la console.";
+        input.focus();
         return;
     }
-    TOKEN = t;
-    localStorage.setItem("specter_token", t);
-    launchApp();
+
+    // Visual feedback : loading
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = "Connexion…";
+    console.log("[SPECTER] doLogin: posting token...");
+
+    try {
+        const r = await tryLogin(t);
+        if (!r.ok) {
+            errEl.textContent = r.error || "Token invalide";
+            input.select();
+            return;
+        }
+        TOKEN = t;
+        localStorage.setItem("specter_token", t);
+        console.log("[SPECTER] Login OK, launching app");
+        launchApp();
+    } catch (e) {
+        errEl.textContent = "Erreur inattendue : " + e.message;
+        console.error("[SPECTER] doLogin error:", e);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+    }
 }
 
 async function launchApp() {

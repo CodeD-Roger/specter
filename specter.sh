@@ -2146,10 +2146,11 @@ web_start_foreground() {
 web_start_listen_all() {
     web_check_deps || { pause; return; }
     warn "Le serveur va écouter sur 0.0.0.0 — accessible depuis d'autres machines du réseau"
-    warn "Le token reste obligatoire, mais assure-toi que ton réseau est de confiance"
+    info "HTTPS sera activé automatiquement (certificat self-signed généré au 1er run)"
+    info "→ le navigateur affichera un avertissement la 1ère fois (clique 'Avancé' → 'Continuer')"
     read -p "  ❯ Continuer ? (o/n) : " yn
     [[ ! "$yn" =~ ^[oOyY]$ ]] && return
-    info "Lancement réseau (Ctrl+C pour stopper)..."
+    info "Lancement réseau HTTPS (Ctrl+C pour stopper)..."
     cd "$SCRIPT_DIR" && python3 specter_web.py --listen-all
     pause
 }
@@ -2194,7 +2195,10 @@ web_stop() {
 web_open_browser() {
     local host="${SPECTER_HOST:-127.0.0.1}"
     local port="${SPECTER_PORT:-8765}"
-    local url="http://${host}:${port}"
+    # Détecte HTTPS si le cert existe
+    local scheme="http"
+    [ -f "$LOGS_DIR/specter_cert.pem" ] && scheme="https"
+    local url="${scheme}://${host}:${port}"
     if have xdg-open; then xdg-open "$url" &> /dev/null &
     elif have open; then open "$url" &> /dev/null &
     else info "Ouvre manuellement : $url"

@@ -104,17 +104,19 @@ Accessible sur `http://127.0.0.1:8765` depuis la même machine.
 ### Accès réseau (depuis d'autres machines)
 
 ```bash
-# Option 1 : flag dédié
+# Le plus simple — bind 0.0.0.0 + HTTPS activé automatiquement
 python3 specter_web.py --listen-all
 
-# Option 2 : host/port explicites
-python3 specter_web.py --host 0.0.0.0 --port 8765
+# Forcer HTTPS même en loopback
+python3 specter_web.py --https
 
-# Option 3 : variables d'environnement
-SPECTER_HOST=0.0.0.0 python3 specter_web.py
+# Désactiver HTTPS (DÉCONSEILLÉ — flux en clair)
+python3 specter_web.py --listen-all --no-https
 ```
 
-Le serveur affiche alors **toutes les IPs locales** sur lesquelles il est joignable. Ouvre `http://<IP>:<port>` depuis ton navigateur et colle le token.
+Le serveur affiche **toutes les IPs locales** sur lesquelles il est joignable, plus l'empreinte SHA-256 du certificat pour vérification manuelle.
+
+Ouvre `https://<IP>:<port>` depuis ton navigateur. Comme le certificat est self-signed, le navigateur affichera un avertissement à la première visite — clique **"Avancé"** → **"Continuer vers ce site"**. C'est normal.
 
 ### Depuis le CLI SPECTER
 
@@ -132,7 +134,28 @@ Menu principal → **[W] Serveur Web** :
 - **Modal viewer** avec colorisation des sorties (open/closed/filtered, CVE, sévérités)
 - **Auth par token** (généré au 1er run, stocké dans `logs/.web_token`)
 
-> ⚠️ **Sécurité réseau** : avec `--listen-all`, le serveur est joignable depuis n'importe quelle machine du LAN. Le token reste obligatoire, mais utilise cette option uniquement sur un réseau de confiance.
+### 🔐 Sécurité de l'interface web
+
+| Mécanisme | État |
+|---|---|
+| **HTTPS auto** | Activé automatiquement dès qu'on bind hors loopback (cert self-signed) |
+| **Token long** | 24 bytes URL-safe (~144 bits d'entropie) — bruteforce non viable |
+| **Rate-limit** | Max 5 tentatives ratées par IP par minute, puis blocage 5 min |
+| **WebSocket** | Bascule automatiquement en `wss://` quand le serveur est en HTTPS |
+| **Headers** | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS en HTTPS |
+| **Cookie** | `HttpOnly` + `SameSite=Strict` + `Secure` en HTTPS |
+| **CSP des inputs** | Validation regex stricte (URL, domaine, IP, ports, sévérité) |
+| **Path traversal** | Tous les accès fichiers vérifiés sous `ROOT` |
+
+**Recommandation pour un vrai red team engagement** : préfère un **tunnel SSH** plutôt que d'exposer le serveur sur le LAN :
+
+```bash
+# Sur ta machine cliente :
+ssh -L 8765:127.0.0.1:8765 user@machine-pentest
+# Puis ouvre http://127.0.0.1:8765 dans ton navigateur local
+```
+
+Le serveur reste en loopback (le plus sûr), et le trafic est chiffré par SSH (auth par clé recommandée).
 
 ---
 

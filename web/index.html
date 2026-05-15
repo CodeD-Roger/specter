@@ -21,8 +21,14 @@
    ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
         </pre>
         <p class="login-sub">PENTEST TOOLKIT — WEB INTERFACE</p>
-        <input type="password" id="token-input" placeholder="Token d'authentification" autofocus>
-        <button id="login-btn">Connexion</button>
+        <input type="password" id="token-input"
+               placeholder="Token d'authentification"
+               autocomplete="off"
+               autocapitalize="none"
+               autocorrect="off"
+               spellcheck="false"
+               autofocus>
+        <button id="login-btn" type="button">Connexion</button>
         <p id="login-error" class="login-error"></p>
         <p class="login-hint">Le token apparaît dans la console après <code>python3 specter_web.py</code></p>
     </div>

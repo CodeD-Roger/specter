@@ -17,7 +17,10 @@ import shlex
 import shutil
 import signal
 import socket
+import subprocess
 import sys
+import time
+from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -67,6 +70,35 @@ else:
 #   - alias     : --listen-all (équivalent à --host 0.0.0.0)
 BIND_HOST = os.environ.get("SPECTER_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("SPECTER_PORT", "8765"))
+USE_HTTPS = False  # mis à True via --https ou --listen-all si on bind sur le réseau
+CERT_FILE = LOGS / "specter_cert.pem"
+KEY_FILE = LOGS / "specter_key.pem"
+
+
+def ensure_self_signed_cert():
+    """Génère un certificat self-signed via openssl si absent.
+    Retourne (cert_path, key_path) ou None en cas d'échec."""
+    if CERT_FILE.exists() and KEY_FILE.exists():
+        return CERT_FILE, KEY_FILE
+    if not shutil.which("openssl"):
+        print("[!] openssl absent — impossible de générer le certificat", file=sys.stderr)
+        return None
+    print("[*] Génération d'un certificat TLS self-signed (valide 365 jours)...")
+    try:
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:4096",
+            "-keyout", str(KEY_FILE), "-out", str(CERT_FILE),
+            "-days", "365", "-nodes",
+            "-subj", "/CN=SPECTER",
+            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:0.0.0.0",
+        ], check=True, capture_output=True)
+        os.chmod(KEY_FILE, 0o600)
+        os.chmod(CERT_FILE, 0o644)
+        print(f"[+] Certificat : {CERT_FILE.relative_to(ROOT)}")
+        return CERT_FILE, KEY_FILE
+    except subprocess.CalledProcessError as e:
+        print(f"[!] Échec génération cert : {e.stderr.decode()}", file=sys.stderr)
+        return None
 
 
 def get_local_ips():
@@ -259,6 +291,54 @@ def validate_params(tool: str, params: dict) -> dict:
 app = FastAPI(title="SPECTER Web", version="1.0")
 
 
+# ─── Rate limiting (anti-brute force) ─────────────────────────────────────
+# Limite : 5 tentatives ratées par IP par minute sur /api/auth
+AUTH_ATTEMPTS = defaultdict(deque)   # ip → deque[timestamp]
+AUTH_BLOCKED  = defaultdict(float)   # ip → timestamp jusqu'à laquelle bloqué
+AUTH_MAX_PER_MIN = 5
+AUTH_BLOCK_DURATION = 300            # 5 minutes de blocage si dépassé
+
+
+def get_client_ip(request: Request) -> str:
+    # On ne lit PAS X-Forwarded-For : pas de reverse proxy attendu, sinon
+    # un attaquant peut le spoofer pour bypasser le rate-limit.
+    return request.client.host if request.client else "unknown"
+
+
+def check_rate_limit(ip: str) -> Optional[float]:
+    """Retourne None si OK, ou un nombre de secondes restantes si bloqué."""
+    now = time.time()
+    blocked_until = AUTH_BLOCKED.get(ip, 0)
+    if blocked_until > now:
+        return blocked_until - now
+    # Nettoie les attempts > 60s
+    attempts = AUTH_ATTEMPTS[ip]
+    while attempts and now - attempts[0] > 60:
+        attempts.popleft()
+    if len(attempts) >= AUTH_MAX_PER_MIN:
+        AUTH_BLOCKED[ip] = now + AUTH_BLOCK_DURATION
+        return AUTH_BLOCK_DURATION
+    return None
+
+
+def register_auth_failure(ip: str):
+    AUTH_ATTEMPTS[ip].append(time.time())
+
+
+# ─── Headers de sécurité sur toutes les réponses ──────────────────────────
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # HSTS uniquement si on est sur HTTPS
+    if USE_HTTPS:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
+
+
 def require_auth(request: Request):
     """Auth via header X-Specter-Token, query ?token=, ou cookie."""
     token = (
@@ -292,11 +372,27 @@ class AuthIn(BaseModel):
     token: str
 
 @app.post("/api/auth")
-async def api_auth(body: AuthIn):
+async def api_auth(body: AuthIn, request: Request):
+    ip = get_client_ip(request)
+
+    # Rate-limit check
+    remaining = check_rate_limit(ip)
+    if remaining is not None:
+        raise HTTPException(429, f"Trop de tentatives. Réessaie dans {int(remaining)}s.")
+
     if not secrets.compare_digest(body.token, AUTH_TOKEN):
+        register_auth_failure(ip)
         raise HTTPException(401, "Token invalide")
+
+    # Auth OK → reset des compteurs pour cette IP
+    AUTH_ATTEMPTS.pop(ip, None)
+    AUTH_BLOCKED.pop(ip, None)
+
+    cookie_flags = "Path=/; HttpOnly; SameSite=Strict"
+    if USE_HTTPS:
+        cookie_flags += "; Secure"
     return JSONResponse({"ok": True}, headers={
-        "Set-Cookie": f"specter_token={AUTH_TOKEN}; Path=/; HttpOnly; SameSite=Strict"
+        "Set-Cookie": f"specter_token={AUTH_TOKEN}; {cookie_flags}"
     })
 
 
@@ -560,10 +656,11 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples:
-  python3 specter_web.py                      # bind 127.0.0.1:8765 (loopback)
-  python3 specter_web.py --listen-all         # bind 0.0.0.0 (réseau)
-  python3 specter_web.py -H 0.0.0.0 -p 9000   # bind sur 0.0.0.0:9000
-  SPECTER_HOST=0.0.0.0 python3 specter_web.py # via variable d'env
+  python3 specter_web.py                            # bind 127.0.0.1:8765 (HTTP loopback)
+  python3 specter_web.py --listen-all               # bind 0.0.0.0 + HTTPS auto
+  python3 specter_web.py --https                    # forcer HTTPS (même en loopback)
+  python3 specter_web.py --listen-all --no-https    # forcer HTTP réseau (DÉCONSEILLÉ)
+  python3 specter_web.py -H 0.0.0.0 -p 9000         # bind explicite
 """,
     )
     p.add_argument("-H", "--host", default=None,
@@ -571,12 +668,17 @@ Exemples:
     p.add_argument("-p", "--port", type=int, default=None,
                    help=f"Port d'écoute (défaut: {BIND_PORT})")
     p.add_argument("--listen-all", action="store_true",
-                   help="Bind sur 0.0.0.0 (accessible depuis le réseau)")
+                   help="Bind sur 0.0.0.0 (active HTTPS automatiquement)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--https", action="store_true",
+                   help="Force HTTPS (auto-génère un certificat self-signed)")
+    g.add_argument("--no-https", action="store_true",
+                   help="Force HTTP même en mode réseau (DÉCONSEILLÉ)")
     return p.parse_args()
 
 
 def main():
-    global BIND_HOST, BIND_PORT
+    global BIND_HOST, BIND_PORT, USE_HTTPS
     args = parse_args()
 
     # CLI flags > env vars > défauts
@@ -587,6 +689,31 @@ def main():
     if args.port:
         BIND_PORT = args.port
 
+    # Décide HTTPS :
+    # - --https → ON
+    # - --no-https → OFF
+    # - sinon : ON automatiquement dès qu'on bind hors loopback
+    on_network = (BIND_HOST == "0.0.0.0"
+                  or (BIND_HOST not in ("127.0.0.1", "localhost")
+                      and not BIND_HOST.startswith("127.")))
+    if args.https:
+        USE_HTTPS = True
+    elif args.no_https:
+        USE_HTTPS = False
+    else:
+        USE_HTTPS = on_network  # auto
+
+    # Génère cert si HTTPS
+    cert_pair = None
+    if USE_HTTPS:
+        cert_pair = ensure_self_signed_cert()
+        if cert_pair is None:
+            print("\033[31m[!] HTTPS demandé mais impossible de générer le certificat.\033[0m")
+            print("\033[31m    Installe openssl ou utilise --no-https à tes risques.\033[0m")
+            sys.exit(1)
+
+    scheme = "https" if USE_HTTPS else "http"
+
     # Banner
     print("\033[36m")
     print("    ╔═════════════════════════════════════════════════════╗")
@@ -594,30 +721,53 @@ def main():
     print("    ╚═════════════════════════════════════════════════════╝")
     print("\033[0m")
 
-    # URL d'accès claire
+    # URLs d'accès
     if BIND_HOST == "0.0.0.0":
-        print(f"  \033[32m●\033[0m URL local  : \033[1mhttp://127.0.0.1:{BIND_PORT}\033[0m")
+        print(f"  \033[32m●\033[0m URL local  : \033[1m{scheme}://127.0.0.1:{BIND_PORT}\033[0m")
         for ip in get_local_ips():
-            print(f"  \033[32m●\033[0m URL réseau : \033[1mhttp://{ip}:{BIND_PORT}\033[0m")
-    elif BIND_HOST in ("127.0.0.1", "localhost"):
-        print(f"  \033[32m●\033[0m URL    : \033[1mhttp://{BIND_HOST}:{BIND_PORT}\033[0m")
-        print(f"  \033[2m         (loopback uniquement — utilise --listen-all pour exposer sur le réseau)\033[0m")
+            print(f"  \033[32m●\033[0m URL réseau : \033[1m{scheme}://{ip}:{BIND_PORT}\033[0m")
     else:
-        print(f"  \033[32m●\033[0m URL    : \033[1mhttp://{BIND_HOST}:{BIND_PORT}\033[0m")
+        print(f"  \033[32m●\033[0m URL    : \033[1m{scheme}://{BIND_HOST}:{BIND_PORT}\033[0m")
+        if BIND_HOST in ("127.0.0.1", "localhost") and not USE_HTTPS:
+            print("  \033[2m         (loopback HTTP — utilise --listen-all pour réseau + HTTPS)\033[0m")
 
     print(f"  \033[33m●\033[0m Token  : \033[1m{AUTH_TOKEN}\033[0m")
     print(f"  \033[2m         (sauvegardé dans {TOKEN_FILE.relative_to(ROOT)})\033[0m")
 
-    # Warning si exposition réseau
-    if BIND_HOST == "0.0.0.0" or (BIND_HOST not in ("127.0.0.1", "localhost") and not BIND_HOST.startswith("127.")):
+    if USE_HTTPS:
         print()
-        print("  \033[31m⚠  Le serveur est exposé sur le réseau.\033[0m")
-        print("  \033[31m   Le token est obligatoire, mais assure-toi de la sécurité du réseau.\033[0m")
+        print("  \033[33m🔒 HTTPS activé (certificat self-signed)\033[0m")
+        print("  \033[2m   Le navigateur affichera un avertissement à la première visite.\033[0m")
+        print("  \033[2m   Clique 'Avancé' → 'Continuer vers ce site' — c'est normal.\033[0m")
+        print(f"  \033[2m   Empreinte cert : {get_cert_fingerprint()}\033[0m")
+    elif on_network:
+        print()
+        print("  \033[31m⚠  ATTENTION : serveur en HTTP exposé sur le réseau\033[0m")
+        print("  \033[31m   Le token et toutes les données circulent EN CLAIR.\033[0m")
+        print("  \033[31m   Active HTTPS avec --https ou utilise un tunnel SSH.\033[0m")
 
     print()
     print("  Ouvre l'URL dans ton navigateur et colle le token.")
     print("  Ctrl+C pour arrêter le serveur.\n")
-    uvicorn.run(app, host=BIND_HOST, port=BIND_PORT, log_level="warning")
+
+    # Lancement uvicorn
+    kwargs = dict(host=BIND_HOST, port=BIND_PORT, log_level="warning")
+    if cert_pair:
+        kwargs["ssl_certfile"] = str(cert_pair[0])
+        kwargs["ssl_keyfile"] = str(cert_pair[1])
+    uvicorn.run(app, **kwargs)
+
+
+def get_cert_fingerprint():
+    """Retourne l'empreinte SHA-256 du cert pour vérification manuelle."""
+    try:
+        out = subprocess.run(
+            ["openssl", "x509", "-in", str(CERT_FILE), "-noout", "-fingerprint", "-sha256"],
+            capture_output=True, text=True, check=True,
+        )
+        return out.stdout.strip().split("=", 1)[-1]
+    except Exception:
+        return "n/a"
 
 
 if __name__ == "__main__":

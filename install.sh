@@ -198,10 +198,23 @@ install_scan_tools() {
 install_recon_tools() {
     log_phase "RECONNAISSANCE / OSINT"
 
-    # Apt
-    for p in whatweb amass theharvester; do
-        if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
-    done
+    # Apt (whatweb est dispo, amass/theharvester ne le sont pas sur Ubuntu noble)
+    if apt_try whatweb; then log_ok "whatweb"; else log_warn "Échec apt : whatweb"; fi
+
+    # amass via go (n'est plus dans apt Ubuntu)
+    go_install_bin github.com/owasp-amass/amass/v4/...@master
+
+    # theHarvester via pip (n'est plus dans apt Ubuntu noble)
+    if ! have theHarvester; then
+        log_info "Installation de theHarvester via pip..."
+        if pip_install theHarvester; then
+            log_ok "theHarvester"
+        else
+            log_warn "Échec theHarvester"
+        fi
+    else
+        log_ok "theHarvester déjà installé"
+    fi
 
     # ProjectDiscovery suite via go
     go_install_bin github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
@@ -259,10 +272,36 @@ install_web_tools() {
 install_ad_tools() {
     log_phase "ACTIVE DIRECTORY / WINDOWS"
 
-    # Apt
-    for p in smbclient ldap-utils smbmap enum4linux responder ldapscripts hashid; do
+    # Apt (les paquets vraiment dispos sur Ubuntu noble)
+    for p in smbclient ldap-utils smbmap ldapscripts hashid; do
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
+
+    # enum4linux-ng remplace enum4linux (retiré d'Ubuntu noble)
+    if ! have enum4linux && ! have enum4linux-ng; then
+        log_info "Installation d'enum4linux-ng via pip..."
+        pip_install enum4linux-ng && log_ok "enum4linux-ng" || log_warn "Échec enum4linux-ng"
+    else
+        log_ok "enum4linux(-ng) déjà présent"
+    fi
+
+    # Responder via git (n'est plus dans apt Ubuntu)
+    if ! have responder && [ ! -d /opt/Responder ]; then
+        log_info "Installation de Responder via git clone..."
+        git clone --depth 1 https://github.com/lgandx/Responder.git /opt/Responder >> "$INSTALL_LOG" 2>&1
+        if [ -f /opt/Responder/Responder.py ]; then
+            cat > /usr/local/bin/responder << 'WRAPPER'
+#!/bin/bash
+exec sudo python3 /opt/Responder/Responder.py "$@"
+WRAPPER
+            chmod +x /usr/local/bin/responder
+            log_ok "Responder installé (wrapper /usr/local/bin/responder)"
+        else
+            log_warn "Échec Responder"
+        fi
+    else
+        log_ok "Responder déjà installé"
+    fi
 
     # impacket (suite complète : secretsdump, GetNPUsers, GetUserSPNs, psexec, etc.)
     log_info "Installation d'impacket..."
@@ -471,6 +510,7 @@ verify_installations() {
         subfinder httpx dnsx amass theHarvester whatweb
         ffuf gobuster feroxbuster nuclei nikto dirb sqlmap wapiti wpscan
         impacket-secretsdump nxc kerbrute evil-winrm bloodhound-python responder smbclient
+        enum4linux-ng smbmap hashid
         hydra john hashcat
         msfconsole searchsploit
         chisel ligolo-proxy proxychains4

@@ -93,26 +93,46 @@ Le viewer de résultats colore automatiquement les ports (open/closed/filtered),
 
 ## 🌐 Lancer l'interface web
 
-Deux options :
-
-**Option 1 — depuis le CLI** : menu principal → `[W] Serveur Web` → `2) Démarrer en arrière-plan`
-
-**Option 2 — direct** :
+### Accès local uniquement (loopback, défaut)
 
 ```bash
 python3 specter_web.py
 ```
 
-Le token d'authentification s'affiche dans la console. Ouvre `http://127.0.0.1:8765` dans ton navigateur et colle le token.
+Accessible sur `http://127.0.0.1:8765` depuis la même machine.
+
+### Accès réseau (depuis d'autres machines)
+
+```bash
+# Option 1 : flag dédié
+python3 specter_web.py --listen-all
+
+# Option 2 : host/port explicites
+python3 specter_web.py --host 0.0.0.0 --port 8765
+
+# Option 3 : variables d'environnement
+SPECTER_HOST=0.0.0.0 python3 specter_web.py
+```
+
+Le serveur affiche alors **toutes les IPs locales** sur lesquelles il est joignable. Ouvre `http://<IP>:<port>` depuis ton navigateur et colle le token.
+
+### Depuis le CLI SPECTER
+
+Menu principal → **[W] Serveur Web** :
+1. `Démarrer (loopback 127.0.0.1)` — local uniquement
+2. `Démarrer en mode réseau (0.0.0.0)` — accessible depuis le LAN
+3. `Démarrer en arrière-plan` — daemon
+4. `Configurer host/port`
 
 ### Fonctionnalités web
 
 - **Dashboard** avec stats globales et pipeline FULL RECON 1-clic (subfinder → dnsx → httpx)
 - **Streaming temps réel** des scans via WebSocket (colorisation live)
 - **Explorateur de résultats** unifié (Nmap, Recon, Web, AD, Loot)
-- **Modal viewer** avec colorisation des sorties
+- **Modal viewer** avec colorisation des sorties (open/closed/filtered, CVE, sévérités)
 - **Auth par token** (généré au 1er run, stocké dans `logs/.web_token`)
-- **Bind 127.0.0.1 par défaut** (`SPECTER_HOST=0.0.0.0 SPECTER_PORT=8888 python3 specter_web.py` pour modifier)
+
+> ⚠️ **Sécurité réseau** : avec `--listen-all`, le serveur est joignable depuis n'importe quelle machine du LAN. Le token reste obligatoire, mais utilise cette option uniquement sur un réseau de confiance.
 
 ---
 

@@ -2081,9 +2081,10 @@ web_server_menu() {
             menu_item 3 "Voir les logs"
             menu_item 4 "Arrêter le serveur"
         else
-            menu_item 1 "Démarrer le serveur"
-            menu_item 2 "Démarrer en arrière-plan"
-            menu_item 3 "Configurer host/port"
+            menu_item 1 "Démarrer (loopback 127.0.0.1)"
+            menu_item 2 "Démarrer en mode réseau (0.0.0.0)" "accessible depuis d'autres machines"
+            menu_item 3 "Démarrer en arrière-plan"
+            menu_item 4 "Configurer host/port"
         fi
         echo ""
         menu_item R "Retour"
@@ -2102,8 +2103,9 @@ web_server_menu() {
         else
             case ${c,,} in
                 1) web_start_foreground ;;
-                2) web_start_background ;;
-                3) web_configure ;;
+                2) web_start_listen_all ;;
+                3) web_start_background ;;
+                4) web_configure ;;
                 r) return ;;
                 *) err "Option invalide"; sleep 1 ;;
             esac
@@ -2136,8 +2138,19 @@ web_check_deps() {
 
 web_start_foreground() {
     web_check_deps || { pause; return; }
-    info "Lancement du serveur (Ctrl+C pour stopper)..."
+    info "Lancement du serveur sur ${SPECTER_HOST:-127.0.0.1}:${SPECTER_PORT:-8765} (Ctrl+C pour stopper)..."
     cd "$SCRIPT_DIR" && python3 specter_web.py
+    pause
+}
+
+web_start_listen_all() {
+    web_check_deps || { pause; return; }
+    warn "Le serveur va écouter sur 0.0.0.0 — accessible depuis d'autres machines du réseau"
+    warn "Le token reste obligatoire, mais assure-toi que ton réseau est de confiance"
+    read -p "  ❯ Continuer ? (o/n) : " yn
+    [[ ! "$yn" =~ ^[oOyY]$ ]] && return
+    info "Lancement réseau (Ctrl+C pour stopper)..."
+    cd "$SCRIPT_DIR" && python3 specter_web.py --listen-all
     pause
 }
 
@@ -2145,6 +2158,7 @@ web_start_background() {
     web_check_deps || { pause; return; }
     info "Lancement en arrière-plan..."
     local log="$LOGS_DIR/web_server.log"
+    # On respecte SPECTER_HOST/PORT s'ils ont été exportés via web_configure
     nohup python3 "$SCRIPT_DIR/specter_web.py" > "$log" 2>&1 &
     echo $! > "$WEB_PID_FILE"
     sleep 1

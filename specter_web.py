@@ -7,6 +7,7 @@ Lancement : python3 specter_web.py
 Accessible : http://127.0.0.1:8765
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -15,6 +16,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import socket
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -59,8 +61,36 @@ else:
     TOKEN_FILE.write_text(AUTH_TOKEN)
     os.chmod(TOKEN_FILE, 0o600)
 
+# Bind par défaut sur loopback. Override possible via :
+#   - flags CLI : --host 0.0.0.0 --port 8765
+#   - env vars  : SPECTER_HOST=0.0.0.0 SPECTER_PORT=8765
+#   - alias     : --listen-all (équivalent à --host 0.0.0.0)
 BIND_HOST = os.environ.get("SPECTER_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("SPECTER_PORT", "8765"))
+
+
+def get_local_ips():
+    """Retourne les IPs IPv4 non-loopback de la machine."""
+    ips = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127.") and ip not in ips:
+                ips.append(ip)
+    except Exception:
+        pass
+    # Fallback : socket UDP "connecté" pour découvrir l'IP sortante
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip not in ips and not ip.startswith("127."):
+            ips.append(ip)
+    except Exception:
+        pass
+    return ips
 
 # Validation : on n'autorise QUE des caractères sûrs dans les inputs cibles
 TARGET_RE = re.compile(r"^[A-Za-z0-9._:/\-]+$")
@@ -523,15 +553,67 @@ async def api_pipeline_recon(body: PipelineIn, _: str = Depends(require_auth)):
 #                              ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════
 
+def parse_args():
+    p = argparse.ArgumentParser(
+        prog="specter_web",
+        description="SPECTER Web — interface web pour le Pentest Toolkit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples:
+  python3 specter_web.py                      # bind 127.0.0.1:8765 (loopback)
+  python3 specter_web.py --listen-all         # bind 0.0.0.0 (réseau)
+  python3 specter_web.py -H 0.0.0.0 -p 9000   # bind sur 0.0.0.0:9000
+  SPECTER_HOST=0.0.0.0 python3 specter_web.py # via variable d'env
+""",
+    )
+    p.add_argument("-H", "--host", default=None,
+                   help=f"Adresse de bind (défaut: {BIND_HOST})")
+    p.add_argument("-p", "--port", type=int, default=None,
+                   help=f"Port d'écoute (défaut: {BIND_PORT})")
+    p.add_argument("--listen-all", action="store_true",
+                   help="Bind sur 0.0.0.0 (accessible depuis le réseau)")
+    return p.parse_args()
+
+
 def main():
+    global BIND_HOST, BIND_PORT
+    args = parse_args()
+
+    # CLI flags > env vars > défauts
+    if args.listen_all:
+        BIND_HOST = "0.0.0.0"
+    if args.host:
+        BIND_HOST = args.host
+    if args.port:
+        BIND_PORT = args.port
+
+    # Banner
     print("\033[36m")
     print("    ╔═════════════════════════════════════════════════════╗")
     print("    ║          SPECTER  WEB  —  Pentest Toolkit           ║")
     print("    ╚═════════════════════════════════════════════════════╝")
     print("\033[0m")
-    print(f"  \033[32m●\033[0m URL    : \033[1mhttp://{BIND_HOST}:{BIND_PORT}\033[0m")
+
+    # URL d'accès claire
+    if BIND_HOST == "0.0.0.0":
+        print(f"  \033[32m●\033[0m URL local  : \033[1mhttp://127.0.0.1:{BIND_PORT}\033[0m")
+        for ip in get_local_ips():
+            print(f"  \033[32m●\033[0m URL réseau : \033[1mhttp://{ip}:{BIND_PORT}\033[0m")
+    elif BIND_HOST in ("127.0.0.1", "localhost"):
+        print(f"  \033[32m●\033[0m URL    : \033[1mhttp://{BIND_HOST}:{BIND_PORT}\033[0m")
+        print(f"  \033[2m         (loopback uniquement — utilise --listen-all pour exposer sur le réseau)\033[0m")
+    else:
+        print(f"  \033[32m●\033[0m URL    : \033[1mhttp://{BIND_HOST}:{BIND_PORT}\033[0m")
+
     print(f"  \033[33m●\033[0m Token  : \033[1m{AUTH_TOKEN}\033[0m")
-    print(f"  \033[2m  (sauvegardé dans {TOKEN_FILE.relative_to(ROOT)})\033[0m")
+    print(f"  \033[2m         (sauvegardé dans {TOKEN_FILE.relative_to(ROOT)})\033[0m")
+
+    # Warning si exposition réseau
+    if BIND_HOST == "0.0.0.0" or (BIND_HOST not in ("127.0.0.1", "localhost") and not BIND_HOST.startswith("127.")):
+        print()
+        print("  \033[31m⚠  Le serveur est exposé sur le réseau.\033[0m")
+        print("  \033[31m   Le token est obligatoire, mais assure-toi de la sécurité du réseau.\033[0m")
+
     print()
     print("  Ouvre l'URL dans ton navigateur et colle le token.")
     print("  Ctrl+C pour arrêter le serveur.\n")

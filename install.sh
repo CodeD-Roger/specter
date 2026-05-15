@@ -45,18 +45,27 @@ log_phase()   { echo -e "\n${MAGENTA}${BOLD}══ $* ══${NC}"; }
 
 have() { command -v "$1" &> /dev/null; }
 
-# Tente d'installer un paquet apt en silence ; renvoie 0 si OK ou déjà présent
+# Log de débogage (apt, pip, downloads…) — toujours visible dans logs/install.log
+INSTALL_LOG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logs/install.log"
+mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null
+: > "$INSTALL_LOG" 2>/dev/null
+
+logf() { echo "[$(date '+%H:%M:%S')] $*" >> "$INSTALL_LOG" 2>/dev/null; }
+
+# Tente d'installer un paquet apt ; logge les erreurs dans logs/install.log
 apt_try() {
     if dpkg -s "$1" &> /dev/null; then
         return 0
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" &> /dev/null
+    logf "apt install $1"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" >> "$INSTALL_LOG" 2>&1
 }
 
 # Installe via pip (avec fallback --break-system-packages pour PEP 668)
 pip_install() {
-    python3 -m pip install --upgrade "$@" 2>/dev/null \
-        || python3 -m pip install --upgrade --break-system-packages "$@" 2>/dev/null
+    logf "pip install $*"
+    python3 -m pip install --upgrade "$@" >> "$INSTALL_LOG" 2>&1 \
+        || python3 -m pip install --upgrade --break-system-packages "$@" >> "$INSTALL_LOG" 2>&1
 }
 
 # Installe un binaire Go (ProjectDiscovery, etc.) dans /usr/local/bin
@@ -92,6 +101,20 @@ detect_os() {
     else
         log_err "Impossible de détecter l'OS"
         exit 1
+    fi
+}
+
+check_disk_space() {
+    local avail_kb
+    avail_kb=$(df --output=avail / 2>/dev/null | tail -1)
+    local avail_gb=$((avail_kb / 1024 / 1024))
+    log_info "Espace libre sur / : ${avail_gb} Go"
+    if (( avail_gb < 3 )); then
+        log_err "Moins de 3 Go libres — l'installation va échouer."
+        log_err "Libère de l'espace ou étends le LV avant de relancer."
+        exit 1
+    elif (( avail_gb < 6 )); then
+        log_warn "Espace serré (${avail_gb} Go) — il faut idéalement >6 Go pour tout installer."
     fi
 }
 
@@ -473,6 +496,7 @@ main() {
     print_banner
     check_root
     detect_os
+    check_disk_space
     update_system
 
     install_base

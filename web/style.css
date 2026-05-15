@@ -24,6 +24,9 @@
 
 * { box-sizing: border-box; }
 
+/* L'attribut hidden DOIT toujours masquer, même si display: flex/grid plus loin */
+[hidden] { display: none !important; }
+
 html, body {
     margin: 0;
     padding: 0;

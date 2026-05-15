@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPECTER — Pentest Toolkit</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E👻%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- ─── Login overlay ─────────────────────────────────────────────────── -->
+<div id="login" class="login-overlay">
+    <div class="login-box">
+        <pre class="ascii">
+   ███████╗██████╗ ███████╗ ██████╗████████╗███████╗██████╗
+   ██╔════╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗
+   ███████╗██████╔╝█████╗  ██║        ██║   █████╗  ██████╔╝
+   ╚════██║██╔═══╝ ██╔══╝  ██║        ██║   ██╔══╝  ██╔══██╗
+   ███████║██║     ███████╗╚██████╗   ██║   ███████╗██║  ██║
+   ╚══════╝╚═╝     ╚══════╝ ╚═════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+        </pre>
+        <p class="login-sub">PENTEST TOOLKIT — WEB INTERFACE</p>
+        <input type="password" id="token-input" placeholder="Token d'authentification" autofocus>
+        <button id="login-btn">Connexion</button>
+        <p id="login-error" class="login-error"></p>
+        <p class="login-hint">Le token apparaît dans la console après <code>python3 specter_web.py</code></p>
+    </div>
+</div>
+
+<!-- ─── Main app ──────────────────────────────────────────────────────── -->
+<div id="app" hidden>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <span class="logo">👻</span>
+            <div>
+                <div class="brand-title">SPECTER</div>
+                <div class="brand-sub">v1.0</div>
+            </div>
+        </div>
+
+        <nav class="nav">
+            <div class="nav-section">Workflow</div>
+            <a class="nav-item active" data-view="dashboard"><span>📊</span> Dashboard</a>
+            <a class="nav-item" data-view="recon"><span>🔎</span> Reconnaissance</a>
+            <a class="nav-item" data-view="scan"><span>🛰️</span> Scan réseau</a>
+            <a class="nav-item" data-view="web"><span>🌐</span> Web</a>
+            <a class="nav-item" data-view="ad"><span>🏢</span> Active Directory</a>
+
+            <div class="nav-section">Données</div>
+            <a class="nav-item" data-view="results"><span>📁</span> Résultats</a>
+            <a class="nav-item" data-view="reports"><span>📑</span> Rapports</a>
+
+            <div class="nav-section">Système</div>
+            <a class="nav-item" data-view="tools"><span>🛠️</span> Outils</a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-dot ok"></div>
+            <span id="server-status">Connecté</span>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="content">
+
+        <!-- ─── Dashboard ────────────────────────────────────────────── -->
+        <section class="view active" data-view="dashboard">
+            <header class="view-header">
+                <h1>Dashboard</h1>
+                <p>Aperçu global des opérations en cours.</p>
+            </header>
+
+            <div class="cards">
+                <div class="card stat"><div class="stat-num" id="stat-nmap">0</div><div class="stat-label">Scans Nmap</div></div>
+                <div class="card stat"><div class="stat-num" id="stat-recon">0</div><div class="stat-label">Recon</div></div>
+                <div class="card stat"><div class="stat-num" id="stat-web">0</div><div class="stat-label">Web</div></div>
+                <div class="card stat"><div class="stat-num" id="stat-ad">0</div><div class="stat-label">AD</div></div>
+                <div class="card stat"><div class="stat-num" id="stat-reports">0</div><div class="stat-label">Rapports</div></div>
+            </div>
+
+            <h2>Pipeline FULL RECON</h2>
+            <div class="card">
+                <p class="hint">Enchaîne <code>subfinder</code> → <code>dnsx</code> → <code>httpx</code> sur un domaine.</p>
+                <div class="form-row">
+                    <input type="text" id="pipeline-domain" placeholder="example.com">
+                    <button id="pipeline-run" class="btn-primary">🚀 Lancer le pipeline</button>
+                </div>
+                <pre id="pipeline-output" class="output" hidden></pre>
+            </div>
+
+            <h2>Activité récente</h2>
+            <div class="card">
+                <div id="recent-files" class="file-list"></div>
+            </div>
+        </section>
+
+        <!-- ─── Recon ──────────────────────────────────────────────── -->
+        <section class="view" data-view="recon">
+            <header class="view-header">
+                <h1>🔎 Reconnaissance</h1>
+                <p>Énumération passive : sous-domaines, DNS, OSINT, probing HTTP.</p>
+            </header>
+            <div id="recon-tools" class="tool-grid"></div>
+        </section>
+
+        <!-- ─── Scan ───────────────────────────────────────────────── -->
+        <section class="view" data-view="scan">
+            <header class="view-header">
+                <h1>🛰️ Scan réseau</h1>
+                <p>Nmap (tous types), masscan, rustscan, naabu, NSE.</p>
+            </header>
+            <div id="scan-tools" class="tool-grid"></div>
+        </section>
+
+        <!-- ─── Web ────────────────────────────────────────────────── -->
+        <section class="view" data-view="web">
+            <header class="view-header">
+                <h1>🌐 Web application</h1>
+                <p>Fuzzing (ffuf, gobuster, dirb), vulnérabilités (nuclei, nikto), spécialisés.</p>
+            </header>
+            <div id="web-tools" class="tool-grid"></div>
+        </section>
+
+        <!-- ─── AD ─────────────────────────────────────────────────── -->
+        <section class="view" data-view="ad">
+            <header class="view-header">
+                <h1>🏢 Active Directory</h1>
+                <p>SMB, LDAP, Kerberos, NetExec, enum4linux.</p>
+            </header>
+            <div id="ad-tools" class="tool-grid"></div>
+        </section>
+
+        <!-- ─── Résultats ──────────────────────────────────────────── -->
+        <section class="view" data-view="results">
+            <header class="view-header">
+                <h1>📁 Résultats des scans</h1>
+                <p>Explorer, visualiser, supprimer les fichiers de sortie.</p>
+            </header>
+
+            <div class="tabs">
+                <button class="tab active" data-cat="nmap">Nmap</button>
+                <button class="tab" data-cat="recon">Recon</button>
+                <button class="tab" data-cat="web">Web</button>
+                <button class="tab" data-cat="ad">AD</button>
+                <button class="tab" data-cat="loot">Loot</button>
+            </div>
+            <div id="files-list" class="file-list"></div>
+        </section>
+
+        <!-- ─── Rapports ───────────────────────────────────────────── -->
+        <section class="view" data-view="reports">
+            <header class="view-header">
+                <h1>📑 Rapports</h1>
+                <p>HTML, PDF, CSV, JSON, XML générés par le toolkit.</p>
+            </header>
+            <div id="reports-list" class="file-list"></div>
+        </section>
+
+        <!-- ─── Outils ─────────────────────────────────────────────── -->
+        <section class="view" data-view="tools">
+            <header class="view-header">
+                <h1>🛠️ État des outils</h1>
+                <p>Outils détectés sur le système.</p>
+            </header>
+            <div id="tools-status" class="tools-grid"></div>
+        </section>
+
+    </main>
+
+    <!-- ─── Live execution panel ──────────────────────────────────── -->
+    <aside id="exec-panel" class="exec-panel" hidden>
+        <div class="exec-header">
+            <div>
+                <div class="exec-title" id="exec-title">Exécution</div>
+                <div class="exec-sub" id="exec-cmd"></div>
+            </div>
+            <div class="exec-actions">
+                <button id="exec-cancel" class="btn-danger">Stopper</button>
+                <button id="exec-close" class="btn-ghost">×</button>
+            </div>
+        </div>
+        <pre id="exec-output" class="exec-output"></pre>
+    </aside>
+
+    <!-- ─── File viewer modal ─────────────────────────────────────── -->
+    <div id="file-modal" class="modal" hidden>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="file-modal-name"></h3>
+                <div>
+                    <button id="file-delete" class="btn-danger">Supprimer</button>
+                    <button id="file-close" class="btn-ghost">×</button>
+                </div>
+            </div>
+            <div class="modal-meta" id="file-modal-meta"></div>
+            <pre id="file-modal-content" class="file-content"></pre>
+        </div>
+    </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

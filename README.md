@@ -1,6 +1,6 @@
 # Pentest Toolkit
 ---
-Le script **install.sh** prépare l’environnement nécessaire pour exécuter **main.sh**, l’outil principal.
+Le script **install.sh** prépare l’environnement nécessaire pour exécuter **specter.sh**, l’outil principal.
 
 Il effectue les actions suivantes :
 
@@ -33,12 +33,20 @@ sudo chmod +x install.sh
 sudo ./install.sh
 ```
 
-### 3️⃣ Lancer l'outil principal
+### 3️⃣ Lancer l'outil principal (CLI)
  ```bash
 
-chmod +x main.sh
-./main.sh
+chmod +x specter.sh
+./specter.sh
 ```
+
+### 4️⃣ (Optionnel) Lancer l'interface web SPECTER
+ ```bash
+python3 specter_web.py
+```
+Le token d'authentification s'affiche dans la console. Ouvre `http://127.0.0.1:8765` dans ton navigateur et colle le token.
+
+Depuis le CLI : option **W** dans le menu principal pour démarrer le serveur web en arrière-plan.
 ---
 ## 📜 Fonctionnalités détaillées
 🔍 Scans disponibles

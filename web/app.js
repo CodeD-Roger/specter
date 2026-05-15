@@ -114,6 +114,13 @@ async function doLogin() {
     }
 }
 
+function updateTicker(label, text) {
+    const tl = document.getElementById("sbo-tick-label");
+    const tv = document.getElementById("sbo-tick-val");
+    if (tl) tl.textContent = label;
+    if (tv) tv.textContent = text || "";
+}
+
 async function launchApp() {
     $("#login").hidden = true;
     $("#app").hidden = false;
@@ -122,6 +129,7 @@ async function launchApp() {
     setupModal();
     setupPipeline();
     setupTabs();
+    setupLogout();
 
     try {
         CATALOG = await api("/api/catalog");
@@ -307,6 +315,17 @@ function setupExecPanel() {
     });
 }
 
+function setupLogout() {
+    const btn = document.getElementById("logout-btn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+        localStorage.removeItem("specter_token");
+        document.cookie = "specter_token=; Max-Age=0; path=/";
+        TOKEN = "";
+        location.reload();
+    });
+}
+
 function runTool(tool, label, params) {
     $("#exec-panel").hidden = false;
     $("#exec-title").textContent = `▶ ${label}`;
@@ -325,6 +344,7 @@ function runTool(tool, label, params) {
         const out = $("#exec-output");
         if (msg.type === "start") {
             $("#exec-cmd").textContent = msg.cmd;
+            updateTicker("RUNNING", msg.cmd);
             appendLine(out, `[+] Démarrage — sortie : ${msg.outfile}`, "sev-low");
         } else if (msg.type === "line") {
             appendLine(out, msg.data, classifyLine(msg.data));
@@ -334,6 +354,8 @@ function runTool(tool, label, params) {
             appendLine(out, "[!] " + msg.msg, "sev-critical");
         } else if (msg.type === "end") {
             appendLine(out, `\n[✓] Terminé (code ${msg.code}) — ${msg.outfile}`, "open");
+            updateTicker("TERMINÉ", label);
+            setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
             refreshStatus();
             refreshRecent();
         }

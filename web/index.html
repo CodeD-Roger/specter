@@ -38,34 +38,65 @@
 <div id="app" hidden>
 
     <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="brand">
-            <span class="logo">👻</span>
+    <aside class="sbo">
+        <div class="sbo-top">
+            <div class="sbo-mark">S</div>
             <div>
-                <div class="brand-title">SPECTER</div>
-                <div class="brand-sub">v1.0</div>
+                <div class="sbo-name">SPECTER</div>
+                <div class="sbo-version">v1.0</div>
             </div>
         </div>
 
-        <nav class="nav">
-            <div class="nav-section">Workflow</div>
-            <a class="nav-item active" data-view="dashboard"><span>📊</span> Dashboard</a>
-            <a class="nav-item" data-view="recon"><span>🔎</span> Reconnaissance</a>
-            <a class="nav-item" data-view="scan"><span>🛰️</span> Scan réseau</a>
-            <a class="nav-item" data-view="web"><span>🌐</span> Web</a>
-            <a class="nav-item" data-view="ad"><span>🏢</span> Active Directory</a>
+        <div class="sbo-ticker">
+            <div class="sbo-tick-l" id="sbo-tick-label">STATUS</div>
+            <div class="sbo-tick-v" id="sbo-tick-val">Prêt</div>
+        </div>
 
-            <div class="nav-section">Données</div>
-            <a class="nav-item" data-view="results"><span>📁</span> Résultats</a>
-            <a class="nav-item" data-view="reports"><span>📑</span> Rapports</a>
+        <nav class="sbo-nav">
+            <div class="sbo-section">WORKFLOW</div>
+            <a class="sbo-item nav-item active" data-view="dashboard">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg></span>
+                <span class="sbo-item-label">Dashboard</span>
+            </a>
+            <a class="sbo-item nav-item" data-view="recon">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><line x1="8" y1="0.5" x2="8" y2="2.5"/><line x1="8" y1="13.5" x2="8" y2="15.5"/><line x1="0.5" y1="8" x2="2.5" y2="8"/><line x1="13.5" y1="8" x2="15.5" y2="8"/></svg></span>
+                <span class="sbo-item-label">Reconnaissance</span>
+            </a>
+            <a class="sbo-item nav-item" data-view="scan">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14 A12 12 0 0 1 14 2"/><path d="M5 14 A9 9 0 0 1 14 5"/><path d="M8 14 A6 6 0 0 1 14 8"/><circle cx="14" cy="14" r="0.8" fill="currentColor" stroke="none"/></svg></span>
+                <span class="sbo-item-label">Scan réseau</span>
+            </a>
+            <a class="sbo-item nav-item" data-view="web">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="2.5" ry="6"/><line x1="2" y1="8" x2="14" y2="8"/></svg></span>
+                <span class="sbo-item-label">Web</span>
+            </a>
+            <a class="sbo-item nav-item" data-view="ad">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6" y="1.5" width="4" height="3"/><rect x="1" y="11.5" width="4" height="3"/><rect x="6" y="11.5" width="4" height="3"/><rect x="11" y="11.5" width="4" height="3"/><path d="M8 4.5 V8 H3 V11.5 M8 8 V11.5 M8 8 H13 V11.5"/></svg></span>
+                <span class="sbo-item-label">Active Directory</span>
+            </a>
 
-            <div class="nav-section">Système</div>
-            <a class="nav-item" data-view="tools"><span>🛠️</span> Outils</a>
+            <div class="sbo-section">DONNÉES</div>
+            <a class="sbo-item nav-item" data-view="results">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4 H6 L7.5 5.5 H14.5 V13 H1.5 Z"/></svg></span>
+                <span class="sbo-item-label">Résultats</span>
+            </a>
+            <a class="sbo-item nav-item" data-view="reports">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z"/><path d="M10 1.5 V4.5 H13"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="5" y1="10.5" x2="11" y2="10.5"/></svg></span>
+                <span class="sbo-item-label">Rapports</span>
+            </a>
+
+            <div class="sbo-section">SYSTÈME</div>
+            <a class="sbo-item nav-item" data-view="tools">
+                <span class="sbo-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1 V4 M8 12 V15 M1 8 H4 M12 8 H15 M3 3 L5 5 M11 11 L13 13 M3 13 L5 11 M11 5 L13 3"/></svg></span>
+                <span class="sbo-item-label">Outils</span>
+            </a>
         </nav>
 
-        <div class="sidebar-footer">
-            <div class="status-dot ok"></div>
-            <span id="server-status">Connecté</span>
+        <div class="sbo-logout">
+            <button class="sbo-logout-btn" type="button" id="logout-btn">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2.5 H2.5 V13.5 H6"/><path d="M9 5 L12.5 8 L9 11"/><line x1="6" y1="8" x2="12.5" y2="8"/></svg>
+                Se déconnecter
+            </button>
         </div>
     </aside>
 

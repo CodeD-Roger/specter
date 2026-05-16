@@ -151,8 +151,29 @@ async function launchApp() {
 
 function setupNavigation() {
     $$(".nav-item").forEach((el) => {
-        el.addEventListener("click", () => switchView(el.dataset.view));
+        el.addEventListener("click", () => {
+            switchView(el.dataset.view);
+            closeSidebar();
+        });
     });
+    setupSidebarDrawer();
+}
+
+function setupSidebarDrawer() {
+    const sbo = document.getElementById("sbo");
+    const backdrop = document.getElementById("sidebar-backdrop");
+    const toggle = document.getElementById("sidebar-toggle");
+    if (!sbo || !backdrop || !toggle) return;
+    toggle.addEventListener("click", () => {
+        sbo.classList.toggle("open");
+        backdrop.classList.toggle("open");
+    });
+    backdrop.addEventListener("click", closeSidebar);
+}
+
+function closeSidebar() {
+    document.getElementById("sbo")?.classList.remove("open");
+    document.getElementById("sidebar-backdrop")?.classList.remove("open");
 }
 
 async function switchView(name) {

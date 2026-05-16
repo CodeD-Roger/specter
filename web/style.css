@@ -1132,3 +1132,164 @@ input:focus, select:focus { border-color: var(--accent); }
     color: var(--text-dim);
     border-color: var(--border);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — tablet, mobile, small mobile
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Hamburger button + backdrop — only visible on small screens */
+.sidebar-toggle {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 90;
+    width: 38px;
+    height: 38px;
+    background: #0f1419;
+    border: 1px solid #1f1f24;
+    color: #d4d4dc;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 6px;
+}
+.sidebar-toggle svg { width: 18px; height: 18px; }
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 80;
+}
+.sidebar-backdrop.open { display: block; }
+
+/* ── ≤ 1024px : tablet landscape / small desktop ──────────────────────── */
+@media (max-width: 1024px) {
+    /* 2-col grids stack to 1 */
+    .dsh-grid { grid-template-columns: 1fr; }
+    .dsh-hero-inner { grid-template-columns: 1fr; gap: 16px; }
+    .dsh-hero-r { flex-direction: row; flex-wrap: wrap; gap: 18px; }
+    .dsh-hero-stat { min-width: 100px; }
+    /* Slightly tighter outer padding */
+    .view[data-view="dashboard"] { padding: 24px 28px 56px; }
+    .view[data-view]:not([data-view="dashboard"]) { padding: 24px 28px; }
+}
+
+/* ── ≤ 768px : tablet portrait / large mobile — sidebar collapses ─────── */
+@media (max-width: 768px) {
+    /* Show hamburger */
+    .sidebar-toggle { display: flex; }
+
+    /* App becomes single column */
+    #app { grid-template-columns: 1fr; }
+
+    /* Sidebar slides in from left */
+    .sbo {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        z-index: 100;
+        box-shadow: 4px 0 30px rgba(0, 0, 0, 0.5);
+    }
+    .sbo.open { transform: translateX(0); }
+
+    /* Push content under the fixed hamburger */
+    .content { padding-top: 8px; }
+    .view-header h1 { margin-top: 4px; }
+    .dsh-bar { padding-top: 36px; flex-wrap: wrap; gap: 14px; }
+
+    /* Dashboard paddings tighter */
+    .view[data-view="dashboard"] { padding: 56px 16px 48px; }
+    .view[data-view]:not([data-view="dashboard"]) { padding: 56px 16px 32px; }
+
+    /* Stat chips become smaller, wrap freely */
+    .dsh-stat-chips { flex-wrap: wrap; gap: 6px; }
+    .dsh-sc { min-width: 44px; padding: 6px 10px; }
+    .dsh-sc-n { font-size: 16px; }
+    .dsh-sc-l { font-size: 9.5px; }
+    .dsh-bar-r { flex-direction: column; align-items: stretch; width: 100%; }
+    .dsh-target-chip { width: 100%; }
+
+    /* Hero pipeline */
+    .dsh-pipeline-row { flex-direction: column; gap: 8px; }
+    .dsh-pipeline-row input { width: 100%; }
+    .dsh-pipeline-btn { width: 100%; justify-content: center; }
+
+    /* Launch rows: drop the sub-line column */
+    .dsh-launch-row { grid-template-columns: 10px 1fr auto; }
+    .dsh-launch-sub { font-size: 11px; }
+
+    /* Tables: enable horizontal scroll */
+    .dsh-panel,
+    .file-list,
+    .tools-grid { overflow-x: auto; }
+    .dsh-tbl { min-width: 560px; }
+
+    /* Exec panel takes full width, shorter */
+    .exec-panel {
+        left: 0;
+        right: 0;
+        height: 50vh;
+    }
+
+    /* Modal: tighter */
+    .modal-content { width: 96vw; max-height: 92vh; }
+    .modal-header { padding: 12px 14px; }
+    .modal-meta { padding: 8px 14px; }
+
+    /* Recon shared bars: stack inputs */
+    .recon-target-row { flex-direction: column; align-items: stretch; gap: 10px; }
+    .recon-target-field { width: 100%; }
+
+    /* Cards/tools grid more compact */
+    .recon-tools-grid,
+    .tools-grid { grid-template-columns: 1fr; }
+
+    /* Hide ascii art on login (too wide for small screens) */
+    .login-box { padding: 24px 18px; max-width: 92vw; }
+    .login-box .ascii { font-size: 7px; }
+}
+
+/* ── ≤ 480px : small phones ──────────────────────────────────────────── */
+@media (max-width: 480px) {
+    html, body { font-size: 13px; }
+
+    .view[data-view="dashboard"] { padding: 52px 12px 36px; }
+    .view[data-view]:not([data-view="dashboard"]) { padding: 52px 12px 24px; }
+
+    .dsh-eyebrow { font-size: 9.5px; }
+    .dsh-title { font-size: 20px; }
+    .dsh-hero-title { font-size: 22px; }
+    .dsh-hero-sub { font-size: 13px; }
+    .dsh-panel-title { font-size: 14px; }
+
+    /* Hide secondary table columns on tiny screens */
+    .dsh-tbl th:nth-child(4),
+    .dsh-tbl td:nth-child(4),
+    .dsh-tbl th:nth-child(3),
+    .dsh-tbl td:nth-child(3) { display: none; }
+    .dsh-tbl { min-width: 0; }
+
+    .dsh-chain { font-size: 11px; gap: 6px; flex-wrap: wrap; }
+    .dsh-chain-step { padding: 4px 8px; }
+
+    /* Hero stats stack vertically */
+    .dsh-hero-r { flex-direction: column; gap: 10px; }
+    .dsh-hero-stat { min-width: 0; width: 100%; }
+
+    /* Exec panel taller on small phones */
+    .exec-panel { height: 60vh; }
+    .exec-header { padding: 10px 12px; }
+
+    /* Sidebar a tiny bit narrower on small phones */
+    .sbo { width: 260px; }
+
+    /* Tabs scroll horizontally */
+    .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+    .tab { white-space: nowrap; flex-shrink: 0; }
+}

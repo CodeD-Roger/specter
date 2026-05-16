@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SPECTER — Pentest Toolkit</title>
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E👻%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -37,8 +37,14 @@
 <!-- ─── Main app ──────────────────────────────────────────────────────── -->
 <div id="app" hidden>
 
+    <!-- Mobile sidebar toggle -->
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Menu">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="2.5" y1="4" x2="13.5" y2="4"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="12" x2="13.5" y2="12"/></svg>
+    </button>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
     <!-- Sidebar -->
-    <aside class="sbo">
+    <aside class="sbo" id="sbo">
         <div class="sbo-top">
             <div class="sbo-mark">👻</div>
             <div>

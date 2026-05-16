@@ -189,6 +189,8 @@ async function switchView(name) {
         loadReports();
     } else if (name === "tools") {
         renderToolsStatus();
+    } else if (name === "wordlists") {
+        loadWordlists();
     }
 }
 
@@ -1150,6 +1152,153 @@ async function openFile(path) {
     } catch (e) {
         alert("Erreur : " + e.message);
     }
+}
+
+// ─── Wordlists view ────────────────────────────────────────────────────
+
+async function loadWordlists() {
+    const catEl = $("#wl-catalog");
+    const insEl = $("#wl-installed");
+    catEl.innerHTML = '<div class="empty">Chargement…</div>';
+    insEl.innerHTML = '<div class="empty">Chargement…</div>';
+    try {
+        const r = await api("/api/wordlists");
+        renderWordlistCatalog(r.catalog);
+        renderInstalledWordlists(r.installed);
+    } catch (e) {
+        catEl.innerHTML = `<div class="empty">Erreur : ${escHtml(e.message)}</div>`;
+        insEl.innerHTML = "";
+    }
+}
+
+function renderWordlistCatalog(catalog) {
+    const el = $("#wl-catalog");
+    el.innerHTML = "";
+    if (!catalog || catalog.length === 0) {
+        el.innerHTML = '<div class="empty">Catalogue vide.</div>';
+        return;
+    }
+    // Group by category
+    const byCat = {};
+    for (const w of catalog) {
+        (byCat[w.category] = byCat[w.category] || []).push(w);
+    }
+    for (const [cat, items] of Object.entries(byCat)) {
+        const h = document.createElement("div");
+        h.className = "wl-cat-label";
+        h.textContent = cat;
+        el.appendChild(h);
+        const grid = document.createElement("div");
+        grid.className = "wl-cards";
+        for (const w of items) {
+            grid.appendChild(buildWordlistCard(w));
+        }
+        el.appendChild(grid);
+    }
+}
+
+function buildWordlistCard(w) {
+    const card = document.createElement("div");
+    card.className = "wl-card" + (w.installed ? " installed" : "");
+    const sizeStr = w.size_mb >= 1
+        ? `${w.size_mb.toFixed(1)} Mo`
+        : `${(w.size_mb * 1024).toFixed(0)} Ko`;
+    card.innerHTML = `
+        <div class="wl-card-head">
+            <div class="wl-card-name">${escHtml(w.name)}</div>
+            <div class="wl-card-size">${sizeStr}</div>
+        </div>
+        <div class="wl-card-desc">${escHtml(w.description)}</div>
+        <div class="wl-card-foot">
+            <code class="wl-card-fname">${escHtml(w.filename)}</code>
+            <button class="btn-primary wl-card-btn" data-id="${w.id}" ${w.installed ? "disabled" : ""}>
+                ${w.installed ? "✓ Installé" : "↓ Télécharger"}
+            </button>
+        </div>`;
+    if (!w.installed) {
+        const btn = card.querySelector(".wl-card-btn");
+        btn.addEventListener("click", () => downloadWordlist(w, btn, card));
+    } else if (w.local_path) {
+        const fname = card.querySelector(".wl-card-fname");
+        fname.style.cursor = "pointer";
+        fname.title = "Cliquer pour copier le chemin";
+        fname.addEventListener("click", () => copyToClipboard(w.local_path));
+    }
+    return card;
+}
+
+async function downloadWordlist(w, btn, card) {
+    btn.disabled = true;
+    btn.textContent = "Téléchargement…";
+    card.classList.add("downloading");
+    try {
+        await api("/api/wordlists/download", {
+            method: "POST",
+            body: JSON.stringify({ id: w.id }),
+        });
+        // Refresh list to reflect installed state + new local entry
+        loadWordlists();
+    } catch (e) {
+        alert("Erreur de téléchargement : " + e.message);
+        btn.disabled = false;
+        btn.textContent = "↓ Télécharger";
+        card.classList.remove("downloading");
+    }
+}
+
+function renderInstalledWordlists(list) {
+    const el = $("#wl-installed");
+    el.innerHTML = "";
+    if (!list || list.length === 0) {
+        el.innerHTML = '<div class="empty">Aucune wordlist détectée sur le système.<br><span class="k">Télécharge-en une depuis le catalogue ci-dessus, ou installe le paquet <code>seclists</code>.</span></div>';
+        return;
+    }
+    list.forEach(w => {
+        const row = document.createElement("div");
+        row.className = "wl-row";
+        row.innerHTML = `
+            <div class="wl-row-name">${escHtml(w.name)}</div>
+            <div class="wl-row-path"><code>${escHtml(w.path)}</code></div>
+            <div class="wl-row-size">${humanSize(w.size)}</div>
+            <button class="btn-ghost wl-row-copy" title="Copier le chemin">Copier</button>`;
+        row.querySelector(".wl-row-copy").addEventListener("click", () => copyToClipboard(w.path));
+        row.addEventListener("click", (e) => {
+            if (!e.target.closest("button")) copyToClipboard(w.path);
+        });
+        el.appendChild(row);
+    });
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(
+            () => flashToast(`Chemin copié : ${text}`),
+            () => flashToast("Échec de la copie")
+        );
+    } else {
+        // Fallback
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); flashToast(`Chemin copié`); }
+        catch { flashToast("Échec de la copie"); }
+        ta.remove();
+    }
+}
+
+let _toastTimer = null;
+function flashToast(msg) {
+    let t = document.getElementById("specter-toast");
+    if (!t) {
+        t = document.createElement("div");
+        t.id = "specter-toast";
+        document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
 }
 
 // ─── Tools status view ─────────────────────────────────────────────────

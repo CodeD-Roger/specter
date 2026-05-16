@@ -50,9 +50,10 @@ AD_DIR = SCANS / "ad"
 REPORTS = ROOT / "reports"
 LOGS = ROOT / "logs"
 LOOT = ROOT / "loot"
+WORDLISTS_DIR = ROOT / "wordlists"
 WEB_STATIC = ROOT / "web"
 
-for d in (NMAP_DIR, RECON_DIR, WEB_DIR, AD_DIR, REPORTS, LOGS, LOOT):
+for d in (NMAP_DIR, RECON_DIR, WEB_DIR, AD_DIR, REPORTS, LOGS, LOOT, WORDLISTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # Token d'auth — généré au lancement, affiché dans la console
@@ -443,6 +444,7 @@ async def api_catalog(_: str = Depends(require_auth)):
 CATEGORY_DIRS = {
     "nmap": NMAP_DIR, "recon": RECON_DIR, "web": WEB_DIR,
     "ad": AD_DIR, "reports": REPORTS, "loot": LOOT,
+    "wordlists": WORDLISTS_DIR,
 }
 
 @app.get("/api/files")
@@ -610,6 +612,215 @@ async def ws_run(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
+
+
+# ─── Wordlists : catalogue + détection + téléchargement ──────────────────
+
+# Dossiers communs où chercher les wordlists déjà installées sur le système
+WORDLIST_SCAN_DIRS = [
+    "/usr/share/wordlists",
+    "/usr/share/seclists",
+    "/usr/share/dirb/wordlists",
+    "/usr/share/dirbuster/wordlists",
+    "/usr/share/wfuzz/wordlist",
+    "/usr/share/john",
+    str(WORDLISTS_DIR),
+]
+
+# Catalogue de wordlists téléchargeables
+WORDLIST_CATALOG = {
+    "rockyou": {
+        "name": "rockyou.txt",
+        "description": "Le célèbre wordlist de mots de passe (~14M lignes, fuite RockYou 2009)",
+        "url": "https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt",
+        "size_mb": 134,
+        "filename": "rockyou.txt",
+        "category": "Mots de passe",
+    },
+    "passwords-top10k": {
+        "name": "Top 10000 mots de passe",
+        "description": "Les 10 000 mots de passe les plus utilisés (SecLists)",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-10000.txt",
+        "size_mb": 0.08,
+        "filename": "passwords-top10k.txt",
+        "category": "Mots de passe",
+    },
+    "passwords-top1m": {
+        "name": "Top 1M mots de passe",
+        "description": "Le million de mots de passe les plus utilisés (~9 Mo)",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt",
+        "size_mb": 9,
+        "filename": "passwords-top1m.txt",
+        "category": "Mots de passe",
+    },
+    "dirb-common": {
+        "name": "dirb / common.txt",
+        "description": "Liste basique de répertoires/fichiers web (4 614 entrées)",
+        "url": "https://raw.githubusercontent.com/v0re/dirb/master/wordlists/common.txt",
+        "size_mb": 0.04,
+        "filename": "dirb-common.txt",
+        "category": "Web / Directory",
+    },
+    "dirbuster-medium": {
+        "name": "DirBuster directory-list 2.3 medium",
+        "description": "Wordlist OWASP DirBuster (~220 K entrées)",
+        "url": "https://raw.githubusercontent.com/daviddias/node-dirbuster/master/lists/directory-list-2.3-medium.txt",
+        "size_mb": 1.9,
+        "filename": "dirbuster-2.3-medium.txt",
+        "category": "Web / Directory",
+    },
+    "raft-large-dirs": {
+        "name": "RAFT large directories",
+        "description": "Liste large de directories pour fuzzing web (~62 K)",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-directories.txt",
+        "size_mb": 0.6,
+        "filename": "raft-large-directories.txt",
+        "category": "Web / Directory",
+    },
+    "raft-large-files": {
+        "name": "RAFT large files",
+        "description": "Liste large de noms de fichiers pour fuzzing web",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-large-files.txt",
+        "size_mb": 0.4,
+        "filename": "raft-large-files.txt",
+        "category": "Web / Directory",
+    },
+    "subdomains-top5k": {
+        "name": "Sous-domaines Top 5000",
+        "description": "Top 5 000 sous-domaines les plus fréquents (subdomain enum)",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt",
+        "size_mb": 0.04,
+        "filename": "subdomains-top5k.txt",
+        "category": "Sous-domaines",
+    },
+    "subdomains-top110k": {
+        "name": "Sous-domaines Top 110000",
+        "description": "Top 110 K sous-domaines (~1 Mo)",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-110000.txt",
+        "size_mb": 1.0,
+        "filename": "subdomains-top110k.txt",
+        "category": "Sous-domaines",
+    },
+    "xss-payloads": {
+        "name": "XSS payloads (Jhaddix)",
+        "description": "Payloads XSS pour fuzzing applicatif",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/XSS/XSS-Jhaddix.txt",
+        "size_mb": 0.03,
+        "filename": "xss-payloads-jhaddix.txt",
+        "category": "Fuzzing",
+    },
+    "sqli-auth-bypass": {
+        "name": "SQL injection auth bypass",
+        "description": "Payloads SQLi pour bypass d'authentification",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/SQLi/Generic-SQLi.txt",
+        "size_mb": 0.01,
+        "filename": "sqli-generic.txt",
+        "category": "Fuzzing",
+    },
+    "lfi-payloads": {
+        "name": "LFI / Path traversal",
+        "description": "Payloads Local File Inclusion / path traversal",
+        "url": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-Jhaddix.txt",
+        "size_mb": 0.01,
+        "filename": "lfi-payloads.txt",
+        "category": "Fuzzing",
+    },
+}
+
+
+def scan_installed_wordlists():
+    """Parcourt WORDLIST_SCAN_DIRS et retourne la liste des fichiers texte trouvés."""
+    seen = set()
+    found = []
+    for base in WORDLIST_SCAN_DIRS:
+        bp = Path(base)
+        if not bp.is_dir():
+            continue
+        try:
+            for f in bp.rglob("*"):
+                if not f.is_file():
+                    continue
+                # Ignore extensions binaires évidentes
+                if f.suffix.lower() in (".gz", ".zip", ".7z", ".bz2", ".xz"):
+                    # rockyou.txt.gz est très commun sur Kali → on l'inclut quand même
+                    if f.name not in ("rockyou.txt.gz",):
+                        continue
+                key = str(f.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    size = f.stat().st_size
+                except OSError:
+                    continue
+                found.append({
+                    "name": f.name,
+                    "path": str(f),
+                    "size": size,
+                    "source": base,
+                })
+        except (PermissionError, OSError):
+            continue
+    found.sort(key=lambda x: (-x["size"], x["name"]))
+    return found
+
+
+@app.get("/api/wordlists")
+async def api_wordlists(_: str = Depends(require_auth)):
+    """Retourne les wordlists installées localement + le catalogue téléchargeable."""
+    installed = scan_installed_wordlists()
+    installed_names = {w["name"].lower() for w in installed}
+    catalog = []
+    for k, v in WORDLIST_CATALOG.items():
+        local = WORDLISTS_DIR / v["filename"]
+        catalog.append({
+            "id": k,
+            "name": v["name"],
+            "description": v["description"],
+            "size_mb": v["size_mb"],
+            "filename": v["filename"],
+            "category": v["category"],
+            "installed": local.is_file() or v["filename"].lower() in installed_names,
+            "local_path": str(local) if local.is_file() else None,
+        })
+    return {"installed": installed, "catalog": catalog}
+
+
+class WordlistDownloadIn(BaseModel):
+    id: str
+
+@app.post("/api/wordlists/download")
+async def api_wordlists_download(body: WordlistDownloadIn, _: str = Depends(require_auth)):
+    if body.id not in WORDLIST_CATALOG:
+        raise HTTPException(404, "Wordlist inconnue")
+    entry = WORDLIST_CATALOG[body.id]
+    dest = WORDLISTS_DIR / entry["filename"]
+    if dest.is_file() and dest.stat().st_size > 0:
+        return {"ok": True, "path": str(dest), "size": dest.stat().st_size, "skipped": True}
+
+    import urllib.request
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    try:
+        # urlretrieve-like, en streaming pour gérer les gros fichiers
+        req = urllib.request.Request(entry["url"], headers={"User-Agent": "specter-web/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            if resp.status != 200:
+                raise HTTPException(502, f"Téléchargement échoué (HTTP {resp.status})")
+            with open(tmp, "wb") as fout:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    fout.write(chunk)
+        tmp.rename(dest)
+    except HTTPException:
+        if tmp.exists(): tmp.unlink()
+        raise
+    except Exception as e:
+        if tmp.exists(): tmp.unlink()
+        raise HTTPException(502, f"Téléchargement échoué : {e}")
+
+    return {"ok": True, "path": str(dest), "size": dest.stat().st_size}
 
 
 # ─── Pipeline FULL RECON ──────────────────────────────────────────────────

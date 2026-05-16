@@ -136,6 +136,7 @@ async function launchApp() {
         renderToolGrids();
         await refreshStatus();
         renderReconSection();
+        renderScanSection();
         await refreshRecent();
     } catch (e) {
         console.error(e);
@@ -211,6 +212,7 @@ const PHASE_TOOLS = {
 function renderToolGrids() {
     for (const [phase, list] of Object.entries(PHASE_TOOLS)) {
         if (phase === "recon") continue; // handled by renderReconSection
+        if (phase === "scan")  continue; // handled by renderScanSection
         const grid = $(`#${phase}-tools`);
         if (!grid) continue;
         grid.innerHTML = "";
@@ -232,9 +234,15 @@ const RECON_PIPELINE = [
 ];
 
 const TOOL_BINARY_MAP = {
+    // recon
     subfinder: "subfinder", amass: "amass", assetfinder: "assetfinder",
     dnsx: "dnsx", httpx: "httpx", whatweb: "whatweb",
     katana: "katana", theharvester: "theHarvester",
+    // scan
+    "nmap-stealth": "nmap", "nmap-ultra": "nmap", "nmap-aggr": "nmap",
+    "nmap-full": "nmap", "nmap-udp": "nmap", "nmap-ipv6": "nmap",
+    "nmap-ack": "nmap", masscan: "masscan", rustscan: "rustscan",
+    naabu: "naabu", nse: "nmap",
 };
 
 function isToolAvailable(toolId) {
@@ -268,7 +276,7 @@ function renderReconSection() {
         for (const toolId of stage.tools) {
             const spec = CATALOG[toolId];
             if (!spec) continue;
-            grid.appendChild(buildReconToolCard(toolId, spec));
+            grid.appendChild(buildPipelineCard(toolId, spec, 'recon'));
         }
         stageEl.appendChild(grid);
         container.appendChild(stageEl);
@@ -277,11 +285,11 @@ function renderReconSection() {
     setupSharedReconInputs();
 }
 
-function buildReconToolCard(name, spec) {
+function buildPipelineCard(name, spec, prefix) {
     const available = isToolAvailable(name);
     const card = document.createElement("div");
     card.className = "tool-card recon-tool-card" + (available === false ? " unavailable" : "");
-    card.id = `recon-card-${name}`;
+    card.id = `${prefix}-card-${name}`;
 
     // Header
     const head = document.createElement("div");
@@ -298,7 +306,7 @@ function buildReconToolCard(name, spec) {
         <div class="tool-card-title">${spec.label}</div>
         <div class="recon-card-badges">
             ${badge}
-            <span class="tool-result-badge" id="result-${name}" hidden></span>
+            <span class="tool-result-badge" id="result-${prefix}-${name}" hidden></span>
         </div>`;
     card.appendChild(head);
 
@@ -307,7 +315,7 @@ function buildReconToolCard(name, spec) {
     form.className = "form-grid";
     const inputs = {};
     for (const need of spec.needs) {
-        const id = `f-${name}-${need}`;
+        const id = `f-${prefix}-${name}-${need}`;
         const lbl = document.createElement("label");
         lbl.setAttribute("for", id);
         lbl.textContent = labelFor(need);
@@ -315,12 +323,12 @@ function buildReconToolCard(name, spec) {
         const inp = document.createElement("input");
         inp.id = id;
         inp.placeholder = placeholderFor(need);
-        inp.dataset.reconField = need;
+        inp.setAttribute(`data-${prefix}-field`, need);
         form.appendChild(inp);
         inputs[need] = inp;
     }
     for (const opt of optionalsFor(name)) {
-        const id = `f-${name}-${opt}`;
+        const id = `f-${prefix}-${name}-${opt}`;
         const lbl = document.createElement("label");
         lbl.setAttribute("for", id);
         lbl.textContent = labelFor(opt);
@@ -336,7 +344,7 @@ function buildReconToolCard(name, spec) {
     // Mini output (collapsible)
     const miniOut = document.createElement("pre");
     miniOut.className = "tool-mini-out";
-    miniOut.id = `mini-out-${name}`;
+    miniOut.id = `mini-out-${prefix}-${name}`;
     miniOut.hidden = true;
     card.appendChild(miniOut);
 
@@ -347,7 +355,7 @@ function buildReconToolCard(name, spec) {
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "btn-ghost recon-toggle-btn";
     toggleBtn.textContent = "▾ Sortie";
-    toggleBtn.id = `toggle-out-${name}`;
+    toggleBtn.id = `toggle-out-${prefix}-${name}`;
     toggleBtn.hidden = true;
     toggleBtn.addEventListener("click", () => {
         miniOut.hidden = !miniOut.hidden;
@@ -356,14 +364,14 @@ function buildReconToolCard(name, spec) {
 
     const launchBtn = document.createElement("button");
     launchBtn.className = "btn-primary recon-launch-btn";
-    launchBtn.id = `launch-${name}`;
+    launchBtn.id = `launch-${prefix}-${name}`;
     launchBtn.textContent = "▶ Lancer";
     if (available === false) launchBtn.disabled = true;
 
     launchBtn.addEventListener("click", () => {
         const params = {};
         for (const k of Object.keys(inputs)) {
-            const v = document.getElementById(`f-${name}-${k}`).value.trim();
+            const v = document.getElementById(`f-${prefix}-${name}-${k}`).value.trim();
             if (v) params[k] = v;
         }
         runTool(name, spec.label, params, miniOut, card);
@@ -397,6 +405,57 @@ function setupSharedReconInputs() {
         }
     });
     if (urlInp) urlInp.addEventListener("input", e => fillUrl(e.target.value));
+}
+
+// ─── Scan réseau pipeline ──────────────────────────────────────────────
+
+const SCAN_PIPELINE = [
+    { id: 1, label: "Découverte rapide",   desc: "Port scanning ultra-rapide — trouve les ports ouverts en secondes",    tools: ["rustscan", "naabu", "masscan"] },
+    { id: 2, label: "Scan furtif",          desc: "Scans discrets conçus pour éviter la détection IDS/IPS",              tools: ["nmap-stealth", "nmap-ultra"] },
+    { id: 3, label: "Énumération détaillée", desc: "Services, OS, versions, firewalls — analyse approfondie des ports",  tools: ["nmap-aggr", "nmap-full", "nmap-udp", "nmap-ipv6", "nmap-ack"] },
+    { id: 4, label: "Scripts NSE",          desc: "Exécution de scripts Nmap ciblés (vuln, exploit, auth, safe...)",     tools: ["nse"] },
+];
+
+function renderScanSection() {
+    const container = document.getElementById("scan-tools");
+    if (!container) return;
+    container.innerHTML = "";
+    container.className = "recon-pipeline";
+
+    for (const stage of SCAN_PIPELINE) {
+        const stageEl = document.createElement("div");
+        stageEl.className = "recon-stage";
+
+        const header = document.createElement("div");
+        header.className = "recon-stage-header";
+        header.innerHTML = `
+            <div class="recon-stage-num">${stage.id}</div>
+            <div>
+                <div class="recon-stage-label">${stage.label}</div>
+                <div class="recon-stage-desc">${stage.desc}</div>
+            </div>`;
+        stageEl.appendChild(header);
+
+        const grid = document.createElement("div");
+        grid.className = "recon-stage-grid";
+        for (const toolId of stage.tools) {
+            const spec = CATALOG[toolId];
+            if (!spec) continue;
+            grid.appendChild(buildPipelineCard(toolId, spec, 'scan'));
+        }
+        stageEl.appendChild(grid);
+        container.appendChild(stageEl);
+    }
+
+    setupSharedScanInputs();
+}
+
+function setupSharedScanInputs() {
+    const targetInp = document.getElementById("scan-target");
+    if (!targetInp) return;
+    targetInp.addEventListener("input", e => {
+        document.querySelectorAll("#scan-tools input[data-scan-field='target']").forEach(i => i.value = e.target.value);
+    });
 }
 
 function buildToolCard(name, spec) {

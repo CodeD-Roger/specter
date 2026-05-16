@@ -166,7 +166,19 @@
                 <h1>🛰️ Scan réseau</h1>
                 <p>Nmap (tous types), masscan, rustscan, naabu, NSE.</p>
             </header>
-            <div id="scan-tools" class="tool-grid"></div>
+
+            <div class="recon-target-bar card">
+                <div class="recon-target-row">
+                    <div class="recon-target-field">
+                        <label for="scan-target">Cible</label>
+                        <input type="text" id="scan-target" placeholder="192.168.1.0/24 ou 10.0.0.1"
+                               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    </div>
+                </div>
+                <p class="hint" style="margin:8px 0 0">Pré-remplit automatiquement tous les champs cible des outils ci-dessous.</p>
+            </div>
+
+            <div id="scan-tools"></div>
         </section>
 
         <!-- ─── Web ────────────────────────────────────────────────── -->

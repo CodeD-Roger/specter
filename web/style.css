@@ -205,21 +205,26 @@ input:focus, select:focus { border-color: var(--accent); }
 
 .sbo-nav {
     flex: 1;
-    padding: 10px 0;
+    padding: 6px 0;
     overflow-y: auto;
 }
 .sbo-section {
     font-size: 10px;
     color: #42424a;
     letter-spacing: 0.22em;
-    padding: 12px 18px 4px;
+    padding: 10px 18px 2px;
+    line-height: 1;
     font-family: var(--font-mono);
 }
 .sbo-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 9px 18px;
+    padding: 0 18px;
+    height: 30px;
+    min-height: 30px;
+    box-sizing: border-box;
+    line-height: 1;
     color: #a8a8b4;
     cursor: pointer;
     position: relative;
@@ -235,8 +240,8 @@ input:focus, select:focus { border-color: var(--accent); }
     content: '';
     position: absolute;
     left: 0;
-    top: 6px;
-    bottom: 6px;
+    top: 5px;
+    bottom: 5px;
     width: 2px;
     background: #00d4ff;
     box-shadow: 0 0 8px #00d4ff;
@@ -249,9 +254,16 @@ input:focus, select:focus { border-color: var(--accent); }
     color: #5f5f6a;
     flex-shrink: 0;
 }
-.sbo-item-icon svg { width: 16px; height: 16px; }
+.sbo-item-icon svg { width: 16px !important; height: 16px !important; display: block; }
 .sbo-item.active .sbo-item-icon { color: #00d4ff; }
-.sbo-item-label { flex: 1; font-size: 13px; }
+.sbo-item-label {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .sbo-item-badge {
     font-size: 10px;
     padding: 1px 6px;

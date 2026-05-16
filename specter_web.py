@@ -654,13 +654,24 @@ async def stream_pty(ws: WebSocket, argv, *, out_file: Optional[Path] = None,
     fcntl.fcntl(master_fd, fcntl.F_SETFL,
                 fcntl.fcntl(master_fd, fcntl.F_GETFL) | os.O_NONBLOCK)
 
+    # Important pour que sudo accepte de prompter : le PTY doit devenir le
+    # *controlling terminal* du nouveau session leader. `start_new_session`
+    # appelle setsid() mais ne lie pas le TTY ; il faut un TIOCSCTTY explicite
+    # depuis le child, après le dup2 des fds (donc fd 0 = slave PTY).
+    def _make_ctty():
+        os.setsid()
+        try:
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        except OSError:
+            pass
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
-            start_new_session=True,
+            preexec_fn=_make_ctty,
             close_fds=True,
             cwd=str(ROOT),
         )

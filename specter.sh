@@ -466,12 +466,11 @@ scan_menu() {
         menu_item 7 "ACK"            "détection règles firewall"
         menu_section "Scans rapides"
         menu_item 8  "masscan"       "ultra-rapide"
-        menu_item 9  "rustscan"      "Rust + nmap"
-        menu_item 10 "naabu"         "ProjectDiscovery"
+        menu_item 9  "naabu"         "ProjectDiscovery"
         menu_section "NSE"
-        menu_item 11 "Scripts NSE"   "vuln, auth, discovery..."
+        menu_item 10 "Scripts NSE"   "vuln, auth, discovery..."
         menu_section "Résultats"
-        menu_item 12 "Voir les scans" "explorer les résultats"
+        menu_item 11 "Voir les scans" "explorer les résultats"
         echo ""
         menu_item R "Retour"
         echo ""
@@ -485,10 +484,9 @@ scan_menu() {
             6)  nmap_scan ipv6 ;;
             7)  nmap_scan ack ;;
             8)  tool_masscan ;;
-            9)  tool_rustscan ;;
-            10) tool_naabu ;;
-            11) nse_menu ;;
-            12) view_scan_results "$NMAP_DIR" "Nmap" ;;
+            9)  tool_naabu ;;
+            10) nse_menu ;;
+            11) view_scan_results "$NMAP_DIR" "Nmap" ;;
             r)  return ;;
             *)  err "Option invalide"; sleep 1 ;;
         esac
@@ -549,14 +547,6 @@ tool_masscan() {
     local out="$NMAP_DIR/masscan_${REPLY_TARGET//\//_}_$(DATE).txt"
     run_logged "masscan $REPLY_TARGET -p $ports --rate=$rate" "$out" \
         sudo masscan "$REPLY_TARGET" -p "$ports" --rate="$rate"
-    pause
-}
-
-tool_rustscan() {
-    require_tool rustscan || return
-    ask_target || return
-    local out="$NMAP_DIR/rustscan_${REPLY_TARGET//\//_}_$(DATE).txt"
-    run_logged "rustscan -a $REPLY_TARGET" "$out" rustscan -a "$REPLY_TARGET" --ulimit 5000
     pause
 }
 
@@ -630,35 +620,33 @@ web_menu() {
         box "🌐 WEB APPLICATION" "$BLUE"
         menu_section "Fuzzing / brute-force"
         menu_item 1 "ffuf"          "fuzzer rapide (recommandé)"
-        menu_item 2 "feroxbuster"   "récursif (Rust)"
-        menu_item 3 "gobuster"      "directories / DNS"
-        menu_item 4 "dirb"          "classique"
+        menu_item 2 "gobuster"      "directories / DNS"
+        menu_item 3 "dirb"          "classique"
         menu_section "Vulnérabilités"
-        menu_item 5 "nuclei"        "templates ⭐"
-        menu_item 6 "nikto"         "scanner web"
-        menu_item 7 "wapiti"        "scanner auto"
+        menu_item 4 "nuclei"        "templates ⭐"
+        menu_item 5 "nikto"         "scanner web"
+        menu_item 6 "wapiti"        "scanner auto"
         menu_section "Spécialisés"
-        menu_item 8  "sqlmap"       "SQL injection"
-        menu_item 9  "wpscan"       "WordPress"
-        menu_item 10 "sslscan"      "TLS / SSL"
+        menu_item 7  "sqlmap"       "SQL injection"
+        menu_item 8  "wpscan"       "WordPress"
+        menu_item 9  "sslscan"      "TLS / SSL"
         menu_section "Résultats"
-        menu_item 11 "Voir les scans" "explorer les résultats"
+        menu_item 10 "Voir les scans" "explorer les résultats"
         echo ""
         menu_item R "Retour"
         echo ""
         read -p "  ❯ Choix : " c
         case ${c,,} in
             1)  tool_ffuf ;;
-            2)  tool_feroxbuster ;;
-            3)  tool_gobuster ;;
-            4)  tool_dirb ;;
-            5)  tool_nuclei ;;
-            6)  tool_nikto ;;
-            7)  tool_wapiti ;;
-            8)  tool_sqlmap ;;
-            9)  tool_wpscan ;;
-            10) tool_sslscan ;;
-            11) view_scan_results "$WEB_DIR" "Web" ;;
+            2)  tool_gobuster ;;
+            3)  tool_dirb ;;
+            4)  tool_nuclei ;;
+            5)  tool_nikto ;;
+            6)  tool_wapiti ;;
+            7)  tool_sqlmap ;;
+            8)  tool_wpscan ;;
+            9)  tool_sslscan ;;
+            10) view_scan_results "$WEB_DIR" "Web" ;;
             r)  return ;;
             *)  err "Option invalide"; sleep 1 ;;
         esac
@@ -672,15 +660,6 @@ tool_ffuf() {
     local url="${REPLY_URL%/}/FUZZ"
     local out="$WEB_DIR/ffuf_$(DATE).txt"
     run_logged "ffuf $url" "$out" ffuf -u "$url" -w "$REPLY_WORDLIST" -mc 200,204,301,302,307,401,403 -c
-    pause
-}
-
-tool_feroxbuster() {
-    require_tool feroxbuster || return
-    ask_url || return
-    ask_wordlist || return
-    local out="$WEB_DIR/feroxbuster_$(DATE).txt"
-    run_logged "feroxbuster $REPLY_URL" "$out" feroxbuster -u "$REPLY_URL" -w "$REPLY_WORDLIST" --silent
     pause
 }
 
@@ -1826,7 +1805,7 @@ monitoring_menu() {
 
 mon_scan_status() {
     box "Processus de scan actifs" "$MAGENTA"
-    ps aux | grep -E "nmap|masscan|rustscan|nuclei|ffuf" | grep -v grep || echo "  Aucun"
+    ps aux | grep -E "nmap|masscan|nuclei|ffuf" | grep -v grep || echo "  Aucun"
     echo ""
     info "Derniers scans :"
     find "$SCAN_DIR" -type f -not -name '.gitkeep' -printf '%T@ %p\n' 2>/dev/null \
@@ -1979,8 +1958,8 @@ tools_check() {
     box "État des outils" "$MAGENTA"
     local groups=(
         "RECON:subfinder amass assetfinder dnsx httpx whatweb katana theHarvester waybackurls"
-        "SCAN:nmap masscan rustscan naabu"
-        "WEB:ffuf feroxbuster gobuster dirb nuclei nikto wapiti sqlmap wpscan sslscan"
+        "SCAN:nmap masscan naabu"
+        "WEB:ffuf gobuster dirb nuclei nikto wapiti sqlmap wpscan sslscan"
         "AD:nxc smbclient smbmap enum4linux kerbrute impacket-secretsdump bloodhound-python ldapdomaindump responder evil-winrm"
         "CREDS:hydra medusa john hashcat hashid crunch"
         "EXPLOIT:msfconsole searchsploit vulners-lookup cve-bin-tool"

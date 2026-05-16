@@ -159,7 +159,6 @@ def b_nmap_ack(p):        return ["sudo", "-n", "nmap", "-sA", "-v", p["target"]
 def b_masscan(p):
     rate = str(int(p.get("rate", 1000)))
     return ["sudo", "-n", "masscan", p["target"], "-p", p.get("ports", "1-65535"), "--rate", rate]
-def b_rustscan(p):        return ["rustscan", "-a", p["target"], "--ulimit", "5000"]
 def b_naabu(p):           return ["naabu", "-host", p["target"], "-silent"]
 def b_nse(p):             return ["sudo", "-n", "nmap", "--script", p["category"], p["target"]]
 
@@ -167,7 +166,6 @@ def b_ffuf(p):
     url = p["url"].rstrip("/") + "/FUZZ"
     return ["ffuf", "-u", url, "-w", p["wordlist"], "-mc", "200,204,301,302,307,401,403", "-c"]
 def b_gobuster(p):        return ["gobuster", "dir", "-u", p["url"], "-w", p["wordlist"], "-q"]
-def b_feroxbuster(p):     return ["feroxbuster", "-u", p["url"], "-w", p["wordlist"], "--silent"]
 def b_dirb(p):
     wl = p.get("wordlist") or "/usr/share/wordlists/dirb/common.txt"
     return ["dirb", p["url"], wl] if Path(wl).exists() else ["dirb", p["url"]]
@@ -217,13 +215,11 @@ TOOLS = {
     "nmap-ipv6":     {"build": b_nmap_ipv6,    "dir": NMAP_DIR,  "needs": ["target"], "label": "Nmap IPv6"},
     "nmap-ack":      {"build": b_nmap_ack,     "dir": NMAP_DIR,  "needs": ["target"], "label": "Nmap ACK"},
     "masscan":       {"build": b_masscan,      "dir": NMAP_DIR,  "needs": ["target"], "label": "Masscan"},
-    "rustscan":      {"build": b_rustscan,     "dir": NMAP_DIR,  "needs": ["target"], "label": "Rustscan"},
     "naabu":         {"build": b_naabu,        "dir": NMAP_DIR,  "needs": ["target"], "label": "Naabu"},
     "nse":           {"build": b_nse,          "dir": NMAP_DIR,  "needs": ["target", "category"], "label": "Nmap NSE"},
     # Web
     "ffuf":          {"build": b_ffuf,         "dir": WEB_DIR,   "needs": ["url", "wordlist"], "label": "ffuf"},
     "gobuster":      {"build": b_gobuster,     "dir": WEB_DIR,   "needs": ["url", "wordlist"], "label": "Gobuster"},
-    "feroxbuster":   {"build": b_feroxbuster,  "dir": WEB_DIR,   "needs": ["url", "wordlist"], "label": "Feroxbuster"},
     "dirb":          {"build": b_dirb,         "dir": WEB_DIR,   "needs": ["url"], "label": "Dirb"},
     "nuclei":        {"build": b_nuclei,       "dir": WEB_DIR,   "needs": ["url"], "label": "Nuclei"},
     "nikto":         {"build": b_nikto,        "dir": WEB_DIR,   "needs": ["url"], "label": "Nikto"},
@@ -236,6 +232,119 @@ TOOLS = {
     "smbmap":        {"build": b_smbmap,       "dir": AD_DIR,    "needs": ["target"], "label": "smbmap"},
     "enum4linux":    {"build": b_enum4linux,   "dir": AD_DIR,    "needs": ["target"], "label": "enum4linux"},
     "nxc":           {"build": b_nxc,          "dir": AD_DIR,    "needs": ["target", "protocol"], "label": "NetExec"},
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#                       INSTALL / UNINSTALL RECIPES
+# ═══════════════════════════════════════════════════════════════════════════
+# Chaque entrée mappe l'identifiant outil (clé de TOOLS) ou le binaire système
+# (valeur de TOOL_BINARY_MAP côté front) à des commandes shell d'install et de
+# désinstallation. Les commandes sont exécutées via `sudo -n bash -c "..."`.
+# Les recettes sont cohérentes avec install.sh : apt-get, pipx, go install,
+# git clone + wrapper /usr/local/bin.
+
+INSTALL_RECIPES = {
+    # ── Recon ────────────────────────────────────────────────────────────
+    "subfinder": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+        "uninstall": "rm -f /usr/local/bin/subfinder",
+    },
+    "amass": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/owasp-amass/amass/v4/...@master",
+        "uninstall": "rm -f /usr/local/bin/amass",
+    },
+    "assetfinder": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/tomnomnom/assetfinder@latest",
+        "uninstall": "rm -f /usr/local/bin/assetfinder",
+    },
+    "dnsx": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
+        "uninstall": "rm -f /usr/local/bin/dnsx",
+    },
+    "httpx": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/httpx/cmd/httpx@latest",
+        "uninstall": "rm -f /usr/local/bin/httpx",
+    },
+    "whatweb": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y whatweb",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y whatweb",
+    },
+    "katana": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/katana/cmd/katana@latest",
+        "uninstall": "rm -f /usr/local/bin/katana",
+    },
+    "theHarvester": {
+        "install":   "([ -d /opt/theHarvester ] || git clone --depth 1 https://github.com/laramies/theHarvester.git /opt/theHarvester) && PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install --force /opt/theHarvester",
+        "uninstall": "PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx uninstall theHarvester; rm -rf /opt/theHarvester",
+    },
+    # ── Scan ─────────────────────────────────────────────────────────────
+    "nmap": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y nmap",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y nmap",
+    },
+    "masscan": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y masscan",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y masscan",
+    },
+    "naabu": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
+        "uninstall": "rm -f /usr/local/bin/naabu",
+    },
+    # ── Web ──────────────────────────────────────────────────────────────
+    "ffuf": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/ffuf/ffuf/v2@latest",
+        "uninstall": "rm -f /usr/local/bin/ffuf",
+    },
+    "gobuster": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y gobuster",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y gobuster",
+    },
+    "dirb": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y dirb",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y dirb",
+    },
+    "nuclei": {
+        "install":   "GOBIN=/usr/local/bin go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && nuclei -update-templates -silent || true",
+        "uninstall": "rm -f /usr/local/bin/nuclei",
+    },
+    "nikto": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y nikto",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y nikto",
+    },
+    "wapiti": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y wapiti",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y wapiti",
+    },
+    "sqlmap": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y sqlmap",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y sqlmap",
+    },
+    "wpscan": {
+        "install":   "gem install wpscan --no-document",
+        "uninstall": "gem uninstall -aIx wpscan",
+    },
+    "sslscan": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y sslscan",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y sslscan",
+    },
+    # ── AD ───────────────────────────────────────────────────────────────
+    "smbclient": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y smbclient",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y smbclient",
+    },
+    "smbmap": {
+        "install":   "DEBIAN_FRONTEND=noninteractive apt-get install -y smbmap",
+        "uninstall": "DEBIAN_FRONTEND=noninteractive apt-get remove -y smbmap",
+    },
+    "enum4linux": {
+        "install":   "([ -d /opt/enum4linux-ng ] || git clone --depth 1 https://github.com/cddmp/enum4linux-ng.git /opt/enum4linux-ng) && printf '#!/bin/bash\\nexec python3 /opt/enum4linux-ng/enum4linux-ng.py \"$@\"\\n' > /usr/local/bin/enum4linux && chmod +x /usr/local/bin/enum4linux",
+        "uninstall": "rm -f /usr/local/bin/enum4linux /usr/local/bin/enum4linux-ng && rm -rf /opt/enum4linux-ng",
+    },
+    "nxc": {
+        "install":   "PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install --force git+https://github.com/Pennyw0rth/NetExec",
+        "uninstall": "PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx uninstall netexec || PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx uninstall NetExec",
+    },
 }
 
 
@@ -602,6 +711,109 @@ async def ws_run(ws: WebSocket):
 
         rc = await proc.wait()
         await ws.send_json({"type": "end", "code": rc, "outfile": str(out_file.relative_to(ROOT))})
+    except WebSocketDisconnect:
+        if proc.returncode is None:
+            try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except Exception: proc.terminate()
+    finally:
+        RUNNING_JOBS.pop(job_id, None)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+# ─── WebSocket : install / désinstall outils ──────────────────────────────
+
+@app.get("/api/install/recipes")
+async def api_install_recipes(_: str = Depends(require_auth)):
+    """Liste des outils pour lesquels une recette install/uninstall existe."""
+    return {"recipes": sorted(INSTALL_RECIPES.keys())}
+
+
+@app.websocket("/ws/manage")
+async def ws_manage(ws: WebSocket):
+    """Stream un install ou uninstall d'outil. Protocole identique à /ws/run :
+    premier message {token, tool, action: "install"|"uninstall"}, puis messages
+    {type: "start"|"line"|"info"|"error"|"end"}."""
+    await ws.accept()
+    try:
+        first = await asyncio.wait_for(ws.receive_json(), timeout=5)
+    except Exception:
+        await ws.close(code=1008, reason="Auth timeout")
+        return
+    if not first.get("token") or not secrets.compare_digest(first["token"], AUTH_TOKEN):
+        await ws.send_json({"type": "error", "msg": "Auth refusée"})
+        await ws.close(code=1008)
+        return
+
+    tool = first.get("tool")
+    action = first.get("action")
+    if action not in ("install", "uninstall"):
+        await ws.send_json({"type": "error", "msg": "Action invalide"})
+        await ws.close()
+        return
+    if tool not in INSTALL_RECIPES:
+        await ws.send_json({"type": "error", "msg": f"Pas de recette pour : {tool}"})
+        await ws.close()
+        return
+
+    recipe = INSTALL_RECIPES[tool][action]
+    # On exécute via `sudo -n bash -c "..."`. Le -n échoue immédiatement si
+    # sudo a besoin d'un mot de passe (pas d'attente interactive).
+    argv = ["sudo", "-n", "bash", "-c", recipe]
+
+    job_id = secrets.token_hex(6)
+    await ws.send_json({
+        "type": "start",
+        "job_id": job_id,
+        "cmd": f"{action} {tool}",
+        "outfile": "",
+    })
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            preexec_fn=os.setsid if os.name != "nt" else None,
+        )
+    except Exception as e:
+        await ws.send_json({"type": "error", "msg": str(e)})
+        await ws.close()
+        return
+
+    RUNNING_JOBS[job_id] = proc
+
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(ws.receive_text(), timeout=0.01)
+                if msg and json.loads(msg).get("action") == "cancel":
+                    if proc.returncode is None:
+                        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        except Exception: proc.terminate()
+                        await ws.send_json({"type": "info", "msg": "Annulation demandée"})
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                if proc.returncode is None:
+                    try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except Exception: proc.terminate()
+                return
+
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            decoded = line.decode(errors="replace").rstrip("\n")
+            await ws.send_json({"type": "line", "data": decoded})
+
+        rc = await proc.wait()
+        if rc != 0 and action == "install":
+            # Hint utile si sudo passwordless n'est pas configuré
+            await ws.send_json({"type": "info",
+                "msg": "Astuce : si sudo demande un mot de passe, configure sudoers passwordless ou lance manuellement : sudo " + recipe})
+        await ws.send_json({"type": "end", "code": rc, "outfile": ""})
     except WebSocketDisconnect:
         if proc.returncode is None:
             try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)

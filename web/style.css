@@ -1006,6 +1006,69 @@ input:focus, select:focus { border-color: var(--accent); }
 .tool-status.ok { color: var(--green); }
 .tool-status.ko { color: var(--red); }
 
+/* ─── État des outils : install / désinstall ──────────────────────────── */
+.tools-cat {
+    margin-bottom: 22px;
+}
+.tools-cat-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 0 4px 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+}
+.tools-cat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+}
+.tool-card-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+.tool-card-status.ok { border-left: 3px solid var(--green); }
+.tool-card-status.ko { border-left: 3px solid var(--red); }
+.tool-card-status-l {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.tool-card-status-icon {
+    font-size: 16px;
+    font-weight: bold;
+    width: 18px;
+    text-align: center;
+}
+.tool-card-status.ok .tool-card-status-icon { color: var(--green); }
+.tool-card-status.ko .tool-card-status-icon { color: var(--red); }
+.tool-card-status-name {
+    color: var(--text);
+    font-weight: 500;
+}
+.tool-card-status-state {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.tool-card-status-btn {
+    font-size: 11px;
+    padding: 5px 10px;
+    flex-shrink: 0;
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

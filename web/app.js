@@ -393,8 +393,8 @@ function navigateToFile(category, name) {
 const PHASE_TOOLS = {
     recon: ["subfinder", "amass", "assetfinder", "dnsx", "httpx", "whatweb", "katana", "theharvester"],
     scan: ["nmap-stealth", "nmap-ultra", "nmap-aggr", "nmap-full", "nmap-udp", "nmap-ipv6",
-           "nmap-ack", "masscan", "rustscan", "naabu", "nse"],
-    web: ["ffuf", "gobuster", "feroxbuster", "dirb", "nuclei", "nikto", "wapiti",
+           "nmap-ack", "masscan", "naabu", "nse"],
+    web: ["ffuf", "gobuster", "dirb", "nuclei", "nikto", "wapiti",
           "sqlmap", "wpscan", "sslscan"],
     ad: ["smbclient", "smbmap", "enum4linux", "nxc"],
 };
@@ -433,10 +433,10 @@ const TOOL_BINARY_MAP = {
     // scan
     "nmap-stealth": "nmap", "nmap-ultra": "nmap", "nmap-aggr": "nmap",
     "nmap-full": "nmap", "nmap-udp": "nmap", "nmap-ipv6": "nmap",
-    "nmap-ack": "nmap", masscan: "masscan", rustscan: "rustscan",
+    "nmap-ack": "nmap", masscan: "masscan",
     naabu: "naabu", nse: "nmap",
     // web
-    ffuf: "ffuf", gobuster: "gobuster", feroxbuster: "feroxbuster",
+    ffuf: "ffuf", gobuster: "gobuster",
     dirb: "dirb", nuclei: "nuclei", nikto: "nikto", wapiti: "wapiti",
     sqlmap: "sqlmap", wpscan: "wpscan", sslscan: "sslscan",
     // ad — nxc can be installed as nxc, netexec or crackmapexec
@@ -452,6 +452,11 @@ function isToolAvailable(toolId) {
     return STATUS.tools[bin] === true;
 }
 
+function visibleTools(toolIds) {
+    // null (status pas chargé) ou true → visible ; false → masqué.
+    return toolIds.filter(id => CATALOG[id] && isToolAvailable(id) !== false);
+}
+
 function renderReconSection() {
     const container = document.getElementById("recon-tools");
     if (!container) return;
@@ -459,6 +464,9 @@ function renderReconSection() {
     container.className = "recon-pipeline";
 
     for (const stage of RECON_PIPELINE) {
+        const tools = visibleTools(stage.tools);
+        if (tools.length === 0) continue;
+
         const stageEl = document.createElement("div");
         stageEl.className = "recon-stage";
 
@@ -474,10 +482,8 @@ function renderReconSection() {
 
         const grid = document.createElement("div");
         grid.className = "recon-stage-grid";
-        for (const toolId of stage.tools) {
-            const spec = CATALOG[toolId];
-            if (!spec) continue;
-            grid.appendChild(buildPipelineCard(toolId, spec, 'recon'));
+        for (const toolId of tools) {
+            grid.appendChild(buildPipelineCard(toolId, CATALOG[toolId], 'recon'));
         }
         stageEl.appendChild(grid);
         container.appendChild(stageEl);
@@ -611,7 +617,7 @@ function setupSharedReconInputs() {
 // ─── Scan réseau pipeline ──────────────────────────────────────────────
 
 const SCAN_PIPELINE = [
-    { id: 1, label: "Découverte rapide",   desc: "Port scanning ultra-rapide — trouve les ports ouverts en secondes",    tools: ["rustscan", "naabu", "masscan"] },
+    { id: 1, label: "Découverte rapide",   desc: "Port scanning ultra-rapide — trouve les ports ouverts en secondes",    tools: ["naabu", "masscan"] },
     { id: 2, label: "Scan furtif",          desc: "Scans discrets conçus pour éviter la détection IDS/IPS",              tools: ["nmap-stealth", "nmap-ultra"] },
     { id: 3, label: "Énumération détaillée", desc: "Services, OS, versions, firewalls — analyse approfondie des ports",  tools: ["nmap-aggr", "nmap-full", "nmap-udp", "nmap-ipv6", "nmap-ack"] },
     { id: 4, label: "Scripts NSE",          desc: "Exécution de scripts Nmap ciblés (vuln, exploit, auth, safe...)",     tools: ["nse"] },
@@ -624,6 +630,9 @@ function renderScanSection() {
     container.className = "recon-pipeline";
 
     for (const stage of SCAN_PIPELINE) {
+        const tools = visibleTools(stage.tools);
+        if (tools.length === 0) continue;
+
         const stageEl = document.createElement("div");
         stageEl.className = "recon-stage";
 
@@ -639,10 +648,8 @@ function renderScanSection() {
 
         const grid = document.createElement("div");
         grid.className = "recon-stage-grid";
-        for (const toolId of stage.tools) {
-            const spec = CATALOG[toolId];
-            if (!spec) continue;
-            grid.appendChild(buildPipelineCard(toolId, spec, 'scan'));
+        for (const toolId of tools) {
+            grid.appendChild(buildPipelineCard(toolId, CATALOG[toolId], 'scan'));
         }
         stageEl.appendChild(grid);
         container.appendChild(stageEl);
@@ -662,7 +669,7 @@ function setupSharedScanInputs() {
 // ─── Web application pipeline ──────────────────────────────────────────
 
 const WEB_PIPELINE = [
-    { id: 1, label: "Fuzzing & Discovery",      desc: "Énumération de répertoires, fichiers et endpoints cachés",          tools: ["ffuf", "gobuster", "feroxbuster", "dirb"] },
+    { id: 1, label: "Fuzzing & Discovery",      desc: "Énumération de répertoires, fichiers et endpoints cachés",          tools: ["ffuf", "gobuster", "dirb"] },
     { id: 2, label: "Scan de vulnérabilités",   desc: "Détection automatisée de failles connues (CVE, misconfigs...)",     tools: ["nuclei", "nikto", "wapiti"] },
     { id: 3, label: "Exploitation ciblée",       desc: "Injection SQL et audit CMS WordPress",                              tools: ["sqlmap", "wpscan"] },
     { id: 4, label: "Audit SSL/TLS",             desc: "Analyse des protocoles, certificats et chiffrements",              tools: ["sslscan"] },
@@ -675,6 +682,9 @@ function renderWebSection() {
     container.className = "recon-pipeline";
 
     for (const stage of WEB_PIPELINE) {
+        const tools = visibleTools(stage.tools);
+        if (tools.length === 0) continue;
+
         const stageEl = document.createElement("div");
         stageEl.className = "recon-stage";
 
@@ -690,10 +700,8 @@ function renderWebSection() {
 
         const grid = document.createElement("div");
         grid.className = "recon-stage-grid";
-        for (const toolId of stage.tools) {
-            const spec = CATALOG[toolId];
-            if (!spec) continue;
-            grid.appendChild(buildPipelineCard(toolId, spec, 'web'));
+        for (const toolId of tools) {
+            grid.appendChild(buildPipelineCard(toolId, CATALOG[toolId], 'web'));
         }
         stageEl.appendChild(grid);
         container.appendChild(stageEl);
@@ -738,6 +746,9 @@ function renderAdSection() {
     container.className = "recon-pipeline";
 
     for (const stage of AD_PIPELINE) {
+        const tools = visibleTools(stage.tools);
+        if (tools.length === 0) continue;
+
         const stageEl = document.createElement("div");
         stageEl.className = "recon-stage";
 
@@ -753,10 +764,8 @@ function renderAdSection() {
 
         const grid = document.createElement("div");
         grid.className = "recon-stage-grid";
-        for (const toolId of stage.tools) {
-            const spec = CATALOG[toolId];
-            if (!spec) continue;
-            grid.appendChild(buildPipelineCard(toolId, spec, 'ad'));
+        for (const toolId of tools) {
+            grid.appendChild(buildPipelineCard(toolId, CATALOG[toolId], 'ad'));
         }
         stageEl.appendChild(grid);
         container.appendChild(stageEl);
@@ -890,7 +899,7 @@ function setupLogout() {
 function guessModule(tool) {
     if (!tool) return "scan";
     if (["subfinder","amass","assetfinder","dnsx","httpx","whatweb","katana","theharvester"].includes(tool)) return "recon";
-    if (["ffuf","gobuster","feroxbuster","dirb","nuclei","nikto","wapiti","sqlmap","wpscan","sslscan"].includes(tool)) return "web";
+    if (["ffuf","gobuster","dirb","nuclei","nikto","wapiti","sqlmap","wpscan","sslscan"].includes(tool)) return "web";
     if (["smbclient","smbmap","enum4linux","nxc"].includes(tool)) return "ad";
     return "scan";
 }
@@ -1303,15 +1312,142 @@ function flashToast(msg) {
 
 // ─── Tools status view ─────────────────────────────────────────────────
 
+// Catalogue d'outils gérables (install/uninstall) groupés par catégorie.
+// `binaries` liste les exécutables qui satisfont la présence : si l'un
+// d'eux est dans STATUS.tools en true, on considère l'outil installé.
+// `recipe` est la clé envoyée à /ws/manage (cf. INSTALL_RECIPES backend).
+const STATUS_TOOLS = [
+    // Reconnaissance
+    { category: "Reconnaissance", recipe: "subfinder",   label: "Subfinder",    binaries: ["subfinder"] },
+    { category: "Reconnaissance", recipe: "amass",       label: "Amass",        binaries: ["amass"] },
+    { category: "Reconnaissance", recipe: "assetfinder", label: "Assetfinder",  binaries: ["assetfinder"] },
+    { category: "Reconnaissance", recipe: "dnsx",        label: "DNSx",         binaries: ["dnsx"] },
+    { category: "Reconnaissance", recipe: "httpx",       label: "HTTPx",        binaries: ["httpx"] },
+    { category: "Reconnaissance", recipe: "whatweb",     label: "WhatWeb",      binaries: ["whatweb"] },
+    { category: "Reconnaissance", recipe: "katana",      label: "Katana",       binaries: ["katana"] },
+    { category: "Reconnaissance", recipe: "theHarvester",label: "theHarvester", binaries: ["theHarvester"] },
+    // Scan
+    { category: "Scan réseau",    recipe: "nmap",        label: "Nmap",         binaries: ["nmap"] },
+    { category: "Scan réseau",    recipe: "masscan",     label: "Masscan",      binaries: ["masscan"] },
+    { category: "Scan réseau",    recipe: "naabu",       label: "Naabu",        binaries: ["naabu"] },
+    // Web
+    { category: "Web",            recipe: "ffuf",        label: "ffuf",         binaries: ["ffuf"] },
+    { category: "Web",            recipe: "gobuster",    label: "Gobuster",     binaries: ["gobuster"] },
+    { category: "Web",            recipe: "dirb",        label: "Dirb",         binaries: ["dirb"] },
+    { category: "Web",            recipe: "nuclei",      label: "Nuclei",       binaries: ["nuclei"] },
+    { category: "Web",            recipe: "nikto",       label: "Nikto",        binaries: ["nikto"] },
+    { category: "Web",            recipe: "wapiti",      label: "Wapiti",       binaries: ["wapiti"] },
+    { category: "Web",            recipe: "sqlmap",      label: "SQLmap",       binaries: ["sqlmap"] },
+    { category: "Web",            recipe: "wpscan",      label: "WPScan",       binaries: ["wpscan"] },
+    { category: "Web",            recipe: "sslscan",     label: "SSLscan",      binaries: ["sslscan"] },
+    // AD
+    { category: "Active Directory", recipe: "smbclient", label: "smbclient",    binaries: ["smbclient"] },
+    { category: "Active Directory", recipe: "smbmap",    label: "smbmap",       binaries: ["smbmap"] },
+    { category: "Active Directory", recipe: "enum4linux",label: "enum4linux",   binaries: ["enum4linux", "enum4linux-ng"] },
+    { category: "Active Directory", recipe: "nxc",       label: "NetExec",      binaries: ["nxc", "netexec", "crackmapexec"] },
+];
+
+function isStatusToolInstalled(entry) {
+    if (!STATUS || !STATUS.tools) return null;
+    return entry.binaries.some(b => STATUS.tools[b] === true);
+}
+
 function renderToolsStatus() {
     const container = $("#tools-status");
     container.innerHTML = "";
     if (!STATUS) return;
-    const entries = Object.entries(STATUS.tools).sort((a, b) => a[0].localeCompare(b[0]));
-    entries.forEach(([tool, available]) => {
-        const div = document.createElement("div");
-        div.className = `tool-status ${available ? "ok" : "ko"}`;
-        div.innerHTML = `<span>${available ? "✓" : "✗"}</span> ${tool}`;
-        container.appendChild(div);
+
+    // Grouper par catégorie
+    const groups = {};
+    for (const entry of STATUS_TOOLS) {
+        (groups[entry.category] ??= []).push(entry);
+    }
+
+    for (const [cat, entries] of Object.entries(groups)) {
+        const section = document.createElement("div");
+        section.className = "tools-cat";
+        section.innerHTML = `<div class="tools-cat-title">${cat}</div>`;
+        const grid = document.createElement("div");
+        grid.className = "tools-cat-grid";
+
+        for (const entry of entries) {
+            const installed = isStatusToolInstalled(entry);
+            const card = document.createElement("div");
+            card.className = `tool-card-status ${installed ? "ok" : "ko"}`;
+
+            const icon = installed ? "✓" : "✗";
+            const stateLabel = installed ? "installé" : "absent";
+            const actionLabel = installed ? "Désinstaller" : "Installer";
+            const actionClass = installed ? "btn-danger" : "btn-primary";
+            const action = installed ? "uninstall" : "install";
+
+            card.innerHTML = `
+                <div class="tool-card-status-l">
+                    <span class="tool-card-status-icon">${icon}</span>
+                    <div>
+                        <div class="tool-card-status-name">${entry.label}</div>
+                        <div class="tool-card-status-state">${stateLabel}</div>
+                    </div>
+                </div>
+                <button class="${actionClass} tool-card-status-btn" data-action="${action}" data-recipe="${entry.recipe}" data-label="${entry.label}">${actionLabel}</button>
+            `;
+            grid.appendChild(card);
+        }
+        section.appendChild(grid);
+        container.appendChild(section);
+    }
+
+    // Listener unique délégué pour les boutons
+    container.querySelectorAll(".tool-card-status-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const { action, recipe, label } = btn.dataset;
+            if (action === "uninstall" &&
+                !confirm(`Désinstaller ${label} ? Cette action est irréversible.`)) return;
+            manageTool(recipe, action, label);
+        });
     });
+}
+
+function manageTool(recipe, action, label) {
+    $("#exec-panel").hidden = false;
+    $("#exec-title").textContent = `${action === "install" ? "⬇" : "🗑"} ${action === "install" ? "Installation" : "Désinstallation"} — ${label}`;
+    $("#exec-cmd").textContent = "Initialisation...";
+    $("#exec-output").innerHTML = "";
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/ws/manage`);
+    CURRENT_WS = ws;
+
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ token: TOKEN, tool: recipe, action }));
+    };
+    ws.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data);
+        const out = $("#exec-output");
+        if (msg.type === "start") {
+            $("#exec-cmd").textContent = msg.cmd;
+            updateTicker("RUNNING", msg.cmd);
+            appendLine(out, `[+] ${msg.cmd}`, "sev-low");
+        } else if (msg.type === "line") {
+            appendLine(out, msg.data, classifyLine(msg.data));
+        } else if (msg.type === "info") {
+            appendLine(out, "[i] " + msg.msg, "sev-medium");
+        } else if (msg.type === "error") {
+            appendLine(out, "[!] " + msg.msg, "sev-critical");
+        } else if (msg.type === "end") {
+            const ok = msg.code === 0;
+            appendLine(out, `\n[${ok ? "✓" : "✗"}] Terminé (code ${msg.code})`, ok ? "open" : "sev-critical");
+            updateTicker(ok ? "TERMINÉ" : "ERREUR", label);
+            setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
+            await refreshStatus();
+            renderToolsStatus();
+            renderReconSection();
+            renderScanSection();
+            renderWebSection();
+            renderAdSection();
+        }
+        out.scrollTop = out.scrollHeight;
+    };
+    ws.onerror = () => appendLine($("#exec-output"), "[!] Erreur WebSocket", "sev-critical");
+    ws.onclose = () => { CURRENT_WS = null; };
 }

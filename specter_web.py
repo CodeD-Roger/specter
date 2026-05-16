@@ -153,18 +153,18 @@ def b_whatweb(p):         return ["whatweb", "-v", p["url"]]
 def b_katana(p):          return ["katana", "-u", p["url"], "-silent"]
 def b_theharvester(p):    return ["theHarvester", "-d", p["domain"], "-b", "all", "-l", "200"]
 
-def b_nmap_stealth(p):    return ["sudo", "-n", "nmap", "-sS", "-v", p["target"]]
-def b_nmap_ultra(p):      return ["sudo", "-n", "nmap", "-sS", "-T2", "-f", "-D", "RND:5", "--data-length", "24", p["target"]]
-def b_nmap_aggr(p):       return ["sudo", "-n", "nmap", "-A", "-T4", "-v", p["target"]]
-def b_nmap_full(p):       return ["sudo", "-n", "nmap", "-sT", "-p-", "-v", p["target"]]
-def b_nmap_udp(p):        return ["sudo", "-n", "nmap", "-sU", "--top-ports", "200", "-v", p["target"]]
-def b_nmap_ipv6(p):       return ["sudo", "-n", "nmap", "-6", "-v", p["target"]]
-def b_nmap_ack(p):        return ["sudo", "-n", "nmap", "-sA", "-v", p["target"]]
+def b_nmap_stealth(p):    return ["sudo", "-S", "nmap", "-sS", "-v", p["target"]]
+def b_nmap_ultra(p):      return ["sudo", "-S", "nmap", "-sS", "-T2", "-f", "-D", "RND:5", "--data-length", "24", p["target"]]
+def b_nmap_aggr(p):       return ["sudo", "-S", "nmap", "-A", "-T4", "-v", p["target"]]
+def b_nmap_full(p):       return ["sudo", "-S", "nmap", "-sT", "-p-", "-v", p["target"]]
+def b_nmap_udp(p):        return ["sudo", "-S", "nmap", "-sU", "--top-ports", "200", "-v", p["target"]]
+def b_nmap_ipv6(p):       return ["sudo", "-S", "nmap", "-6", "-v", p["target"]]
+def b_nmap_ack(p):        return ["sudo", "-S", "nmap", "-sA", "-v", p["target"]]
 def b_masscan(p):
     rate = str(int(p.get("rate", 1000)))
-    return ["sudo", "-n", "masscan", p["target"], "-p", p.get("ports", "1-65535"), "--rate", rate]
+    return ["sudo", "-S", "masscan", p["target"], "-p", p.get("ports", "1-65535"), "--rate", rate]
 def b_naabu(p):           return ["naabu", "-host", p["target"], "-silent"]
-def b_nse(p):             return ["sudo", "-n", "nmap", "--script", p["category"], p["target"]]
+def b_nse(p):             return ["sudo", "-S", "nmap", "--script", p["category"], p["target"]]
 
 def b_ffuf(p):
     url = p["url"].rstrip("/") + "/FUZZ"
@@ -878,10 +878,13 @@ async def ws_manage(ws: WebSocket):
         return
 
     recipe = INSTALL_RECIPES[tool][action]
-    # `sudo` (sans -n) : si un password est nécessaire, sudo le demande sur le
-    # PTY et l'utilisateur peut le taper depuis la console web.
-    argv = ["sudo", "bash", "-c", recipe]
-    hint = f"Si tu vois 'sudo: a password is required', tape ton mot de passe dans la console web puis Entrée. Échec brut : sudo {recipe}"
+    # `sudo -S` : lit le mot de passe depuis stdin au lieu du TTY. Robuste
+    # même si le controlling-TTY du PTY n'est pas reconnu (sudoers restrictif,
+    # requiretty, etc.). L'utilisateur tape son password dans la console web,
+    # ça arrive via {action: input} → écrit dans le master PTY → arrive sur
+    # le stdin de sudo.
+    argv = ["sudo", "-S", "-p", "[sudo] password for %u: ", "bash", "-c", recipe]
+    hint = f"Tape ton mot de passe sudo dans la console puis Entrée. Échec brut : sudo {recipe}"
 
     await stream_pty(
         ws, argv,

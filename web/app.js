@@ -137,6 +137,7 @@ async function launchApp() {
         await refreshStatus();
         renderReconSection();
         renderScanSection();
+        renderWebSection();
         await refreshRecent();
     } catch (e) {
         console.error(e);
@@ -213,6 +214,7 @@ function renderToolGrids() {
     for (const [phase, list] of Object.entries(PHASE_TOOLS)) {
         if (phase === "recon") continue; // handled by renderReconSection
         if (phase === "scan")  continue; // handled by renderScanSection
+        if (phase === "web")   continue; // handled by renderWebSection
         const grid = $(`#${phase}-tools`);
         if (!grid) continue;
         grid.innerHTML = "";
@@ -243,6 +245,10 @@ const TOOL_BINARY_MAP = {
     "nmap-full": "nmap", "nmap-udp": "nmap", "nmap-ipv6": "nmap",
     "nmap-ack": "nmap", masscan: "masscan", rustscan: "rustscan",
     naabu: "naabu", nse: "nmap",
+    // web
+    ffuf: "ffuf", gobuster: "gobuster", feroxbuster: "feroxbuster",
+    dirb: "dirb", nuclei: "nuclei", nikto: "nikto", wapiti: "wapiti",
+    sqlmap: "sqlmap", wpscan: "wpscan", sslscan: "sslscan",
 };
 
 function isToolAvailable(toolId) {
@@ -455,6 +461,70 @@ function setupSharedScanInputs() {
     if (!targetInp) return;
     targetInp.addEventListener("input", e => {
         document.querySelectorAll("#scan-tools input[data-scan-field='target']").forEach(i => i.value = e.target.value);
+    });
+}
+
+// ─── Web application pipeline ──────────────────────────────────────────
+
+const WEB_PIPELINE = [
+    { id: 1, label: "Fuzzing & Discovery",      desc: "Énumération de répertoires, fichiers et endpoints cachés",          tools: ["ffuf", "gobuster", "feroxbuster", "dirb"] },
+    { id: 2, label: "Scan de vulnérabilités",   desc: "Détection automatisée de failles connues (CVE, misconfigs...)",     tools: ["nuclei", "nikto", "wapiti"] },
+    { id: 3, label: "Exploitation ciblée",       desc: "Injection SQL et audit CMS WordPress",                              tools: ["sqlmap", "wpscan"] },
+    { id: 4, label: "Audit SSL/TLS",             desc: "Analyse des protocoles, certificats et chiffrements",              tools: ["sslscan"] },
+];
+
+function renderWebSection() {
+    const container = document.getElementById("web-tools");
+    if (!container) return;
+    container.innerHTML = "";
+    container.className = "recon-pipeline";
+
+    for (const stage of WEB_PIPELINE) {
+        const stageEl = document.createElement("div");
+        stageEl.className = "recon-stage";
+
+        const header = document.createElement("div");
+        header.className = "recon-stage-header";
+        header.innerHTML = `
+            <div class="recon-stage-num">${stage.id}</div>
+            <div>
+                <div class="recon-stage-label">${stage.label}</div>
+                <div class="recon-stage-desc">${stage.desc}</div>
+            </div>`;
+        stageEl.appendChild(header);
+
+        const grid = document.createElement("div");
+        grid.className = "recon-stage-grid";
+        for (const toolId of stage.tools) {
+            const spec = CATALOG[toolId];
+            if (!spec) continue;
+            grid.appendChild(buildPipelineCard(toolId, spec, 'web'));
+        }
+        stageEl.appendChild(grid);
+        container.appendChild(stageEl);
+    }
+
+    setupSharedWebInputs();
+}
+
+function setupSharedWebInputs() {
+    const urlInp      = document.getElementById("web-url");
+    const wordlistInp = document.getElementById("web-wordlist");
+
+    if (urlInp) urlInp.addEventListener("input", e => {
+        const val = e.target.value;
+        document.querySelectorAll("#web-tools input[data-web-field='url']").forEach(i => i.value = val);
+        // Auto-derive hostname:port for sslscan
+        try {
+            const u = new URL(val);
+            const port = u.port || (u.protocol === "https:" ? "443" : "80");
+            const target = `${u.hostname}:${port}`;
+            document.querySelectorAll("#web-tools input[data-web-field='target']").forEach(i => i.value = target);
+        } catch {}
+    });
+
+    if (wordlistInp) wordlistInp.addEventListener("input", e => {
+        document.querySelectorAll("#web-tools input[data-web-field='wordlist']").forEach(i => i.value = e.target.value);
     });
 }
 

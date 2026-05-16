@@ -187,7 +187,24 @@
                 <h1>🌐 Web application</h1>
                 <p>Fuzzing (ffuf, gobuster, dirb), vulnérabilités (nuclei, nikto), spécialisés.</p>
             </header>
-            <div id="web-tools" class="tool-grid"></div>
+
+            <div class="recon-target-bar card">
+                <div class="recon-target-row">
+                    <div class="recon-target-field">
+                        <label for="web-url">URL cible</label>
+                        <input type="text" id="web-url" placeholder="https://example.com"
+                               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    </div>
+                    <div class="recon-target-field">
+                        <label for="web-wordlist">Wordlist</label>
+                        <input type="text" id="web-wordlist" placeholder="/usr/share/wordlists/dirb/common.txt"
+                               autocomplete="off" spellcheck="false">
+                    </div>
+                </div>
+                <p class="hint" style="margin:8px 0 0">Pré-remplit URL et wordlist sur tous les outils. L'URL dérive automatiquement la cible SSL.</p>
+            </div>
+
+            <div id="web-tools"></div>
         </section>
 
         <!-- ─── AD ─────────────────────────────────────────────────── -->

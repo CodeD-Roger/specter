@@ -9,16 +9,20 @@ Accessible : http://127.0.0.1:8765
 
 import argparse
 import asyncio
+import fcntl
 import json
 import os
+import pty
 import re
 import secrets
 import shlex
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
+import termios
 import time
 from collections import defaultdict, deque
 from datetime import datetime
@@ -615,14 +619,188 @@ async def api_download(path: str, _: str = Depends(require_auth)):
     )
 
 
-# ─── WebSocket : exécution streaming ──────────────────────────────────────
+# ─── WebSocket : exécution streaming via PTY ──────────────────────────────
 
 RUNNING_JOBS = {}  # job_id → asyncio.subprocess.Process
+
+# Codes ANSI à stripper pour les fichiers de sortie (les logs restent lisibles).
+ANSI_RE = re.compile(r'\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[=>]|\r')
+
+
+async def stream_pty(ws: WebSocket, argv, *, out_file: Optional[Path] = None,
+                     start_meta: Optional[dict] = None,
+                     end_hint: Optional[str] = None):
+    """Lance argv attaché à un PTY, stream la sortie vers le WebSocket et
+    transfère les messages {action: "input", data} et {action: "cancel"} du
+    client vers le process. Écrit aussi dans out_file (sans codes ANSI).
+
+    Protocole WS :
+      → server: {type: "start", job_id, cmd, outfile, ...start_meta}
+      → server: {type: "data", data: "chunk"}  (output brut, ANSI inclus)
+      → server: {type: "info"|"error", msg}
+      → server: {type: "end", code, outfile}
+      ← client: {action: "input", data: "..."}  (envoyé tel quel au PTY)
+      ← client: {action: "cancel"}              (SIGTERM au process group)
+    """
+    # PTY : on alloue un couple master/slave et on attache le process au slave.
+    master_fd, slave_fd = pty.openpty()
+    # Définit une taille raisonnable pour les outils ncurses.
+    try:
+        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ,
+                    struct.pack("HHHH", 30, 120, 0, 0))
+    except Exception:
+        pass
+    # Master en non-bloquant pour `os.read` ne bloque jamais.
+    fcntl.fcntl(master_fd, fcntl.F_SETFL,
+                fcntl.fcntl(master_fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            start_new_session=True,
+            close_fds=True,
+            cwd=str(ROOT),
+        )
+    except FileNotFoundError:
+        os.close(master_fd); os.close(slave_fd)
+        await ws.send_json({"type": "error", "msg": f"Outil introuvable : {argv[0]}"})
+        await ws.close()
+        return -1
+    except Exception as e:
+        os.close(master_fd); os.close(slave_fd)
+        await ws.send_json({"type": "error", "msg": str(e)})
+        await ws.close()
+        return -1
+    finally:
+        # Le parent ferme son côté slave : le master verra EIO quand le child
+        # ferme son côté.
+        try: os.close(slave_fd)
+        except Exception: pass
+
+    job_id = secrets.token_hex(6)
+    RUNNING_JOBS[job_id] = proc
+
+    start_msg = {
+        "type": "start",
+        "job_id": job_id,
+        "cmd": " ".join(shlex.quote(a) for a in argv),
+        "outfile": str(out_file.relative_to(ROOT)) if out_file else "",
+    }
+    if start_meta:
+        start_msg.update(start_meta)
+    await ws.send_json(start_msg)
+
+    loop = asyncio.get_event_loop()
+    output_queue: asyncio.Queue = asyncio.Queue()
+
+    def on_master_readable():
+        try:
+            chunk = os.read(master_fd, 4096)
+        except BlockingIOError:
+            return
+        except OSError:
+            output_queue.put_nowait(None)  # EIO → enfant fermé
+            return
+        if not chunk:
+            output_queue.put_nowait(None)
+            return
+        output_queue.put_nowait(chunk)
+
+    loop.add_reader(master_fd, on_master_readable)
+
+    fout = open(out_file, "w", errors="replace") if out_file else None
+
+    async def writer_task():
+        """Lit le WS et transfère input/cancel."""
+        try:
+            while True:
+                msg = await ws.receive_json()
+                action = msg.get("action")
+                if action == "input":
+                    data = msg.get("data", "")
+                    if isinstance(data, str):
+                        data = data.encode("utf-8", errors="replace")
+                    try:
+                        os.write(master_fd, data)
+                    except OSError:
+                        return
+                elif action == "cancel":
+                    if proc.returncode is None:
+                        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        except Exception: proc.terminate()
+                        try: await ws.send_json({"type": "info", "msg": "Annulation demandée"})
+                        except Exception: pass
+        except WebSocketDisconnect:
+            if proc.returncode is None:
+                try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except Exception: proc.terminate()
+        except Exception:
+            pass
+
+    async def reader_task():
+        """Vide la queue de sortie et l'envoie au WS + fichier."""
+        try:
+            while True:
+                chunk = await output_queue.get()
+                if chunk is None:
+                    break
+                text = chunk.decode("utf-8", errors="replace")
+                if fout is not None:
+                    fout.write(ANSI_RE.sub("", text))
+                    fout.flush()
+                try:
+                    await ws.send_json({"type": "data", "data": text})
+                except Exception:
+                    return
+        except Exception:
+            pass
+
+    writer = asyncio.create_task(writer_task())
+    reader = asyncio.create_task(reader_task())
+
+    try:
+        rc = await proc.wait()
+        # Laisse un court délai au PTY pour cracher les derniers octets.
+        await asyncio.sleep(0.1)
+    except Exception:
+        rc = -1
+    finally:
+        # Signale EOF à reader_task et arrête tout proprement.
+        output_queue.put_nowait(None)
+        try: loop.remove_reader(master_fd)
+        except Exception: pass
+        try: os.close(master_fd)
+        except Exception: pass
+        if fout is not None:
+            try: fout.close()
+            except Exception: pass
+        writer.cancel()
+        await asyncio.gather(writer, reader, return_exceptions=True)
+        RUNNING_JOBS.pop(job_id, None)
+
+    if rc != 0 and end_hint:
+        try: await ws.send_json({"type": "info", "msg": end_hint})
+        except Exception: pass
+
+    try:
+        await ws.send_json({
+            "type": "end",
+            "code": rc,
+            "outfile": str(out_file.relative_to(ROOT)) if out_file else "",
+        })
+    except Exception:
+        pass
+    try: await ws.close()
+    except Exception: pass
+    return rc
+
 
 @app.websocket("/ws/run")
 async def ws_run(ws: WebSocket):
     await ws.accept()
-    # Auth : premier message doit contenir le token
     try:
         first = await asyncio.wait_for(ws.receive_json(), timeout=5)
     except Exception:
@@ -645,82 +823,13 @@ async def ws_run(ws: WebSocket):
         await ws.close()
         return
 
-    # Fichier de sortie
     safe_target = re.sub(r"[^A-Za-z0-9._-]", "_", str(
         validated.get("target") or validated.get("url") or validated.get("domain") or "scan"
     ))[:50]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = spec["dir"] / f"{tool}_{safe_target}_{ts}.txt"
 
-    job_id = secrets.token_hex(6)
-    await ws.send_json({
-        "type": "start",
-        "job_id": job_id,
-        "cmd": " ".join(shlex.quote(a) for a in argv),
-        "outfile": str(out_file.relative_to(ROOT)),
-    })
-
-    # Lancement subprocess
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            preexec_fn=os.setsid if os.name != "nt" else None,
-        )
-    except FileNotFoundError as e:
-        await ws.send_json({"type": "error", "msg": f"Outil introuvable : {argv[0]}"})
-        await ws.close()
-        return
-    except Exception as e:
-        await ws.send_json({"type": "error", "msg": str(e)})
-        await ws.close()
-        return
-
-    RUNNING_JOBS[job_id] = proc
-
-    # Streaming ligne par ligne dans output file + websocket
-    try:
-        with open(out_file, "w", errors="replace") as fout:
-            while True:
-                # Vérifie un message "cancel" sans bloquer
-                try:
-                    msg = await asyncio.wait_for(ws.receive_text(), timeout=0.01)
-                    if msg and json.loads(msg).get("action") == "cancel":
-                        if proc.returncode is None:
-                            try:
-                                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                            except Exception:
-                                proc.terminate()
-                            await ws.send_json({"type": "info", "msg": "Annulation demandée"})
-                except asyncio.TimeoutError:
-                    pass
-                except WebSocketDisconnect:
-                    if proc.returncode is None:
-                        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                        except Exception: proc.terminate()
-                    return
-
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-                decoded = line.decode(errors="replace").rstrip("\n")
-                fout.write(decoded + "\n")
-                fout.flush()
-                await ws.send_json({"type": "line", "data": decoded})
-
-        rc = await proc.wait()
-        await ws.send_json({"type": "end", "code": rc, "outfile": str(out_file.relative_to(ROOT))})
-    except WebSocketDisconnect:
-        if proc.returncode is None:
-            try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception: proc.terminate()
-    finally:
-        RUNNING_JOBS.pop(job_id, None)
-        try:
-            await ws.close()
-        except Exception:
-            pass
+    await stream_pty(ws, argv, out_file=out_file)
 
 
 # ─── WebSocket : install / désinstall outils ──────────────────────────────
@@ -733,9 +842,8 @@ async def api_install_recipes(_: str = Depends(require_auth)):
 
 @app.websocket("/ws/manage")
 async def ws_manage(ws: WebSocket):
-    """Stream un install ou uninstall d'outil. Protocole identique à /ws/run :
-    premier message {token, tool, action: "install"|"uninstall"}, puis messages
-    {type: "start"|"line"|"info"|"error"|"end"}."""
+    """Install/uninstall d'un outil via PTY : si sudo demande un mot de passe,
+    l'utilisateur peut le taper depuis la console web (action: input)."""
     await ws.accept()
     try:
         first = await asyncio.wait_for(ws.receive_json(), timeout=5)
@@ -759,71 +867,16 @@ async def ws_manage(ws: WebSocket):
         return
 
     recipe = INSTALL_RECIPES[tool][action]
-    # On exécute via `sudo -n bash -c "..."`. Le -n échoue immédiatement si
-    # sudo a besoin d'un mot de passe (pas d'attente interactive).
-    argv = ["sudo", "-n", "bash", "-c", recipe]
+    # `sudo` (sans -n) : si un password est nécessaire, sudo le demande sur le
+    # PTY et l'utilisateur peut le taper depuis la console web.
+    argv = ["sudo", "bash", "-c", recipe]
+    hint = f"Si tu vois 'sudo: a password is required', tape ton mot de passe dans la console web puis Entrée. Échec brut : sudo {recipe}"
 
-    job_id = secrets.token_hex(6)
-    await ws.send_json({
-        "type": "start",
-        "job_id": job_id,
-        "cmd": f"{action} {tool}",
-        "outfile": "",
-    })
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            preexec_fn=os.setsid if os.name != "nt" else None,
-        )
-    except Exception as e:
-        await ws.send_json({"type": "error", "msg": str(e)})
-        await ws.close()
-        return
-
-    RUNNING_JOBS[job_id] = proc
-
-    try:
-        while True:
-            try:
-                msg = await asyncio.wait_for(ws.receive_text(), timeout=0.01)
-                if msg and json.loads(msg).get("action") == "cancel":
-                    if proc.returncode is None:
-                        try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                        except Exception: proc.terminate()
-                        await ws.send_json({"type": "info", "msg": "Annulation demandée"})
-            except asyncio.TimeoutError:
-                pass
-            except WebSocketDisconnect:
-                if proc.returncode is None:
-                    try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except Exception: proc.terminate()
-                return
-
-            line = await proc.stdout.readline()
-            if not line:
-                break
-            decoded = line.decode(errors="replace").rstrip("\n")
-            await ws.send_json({"type": "line", "data": decoded})
-
-        rc = await proc.wait()
-        if rc != 0 and action == "install":
-            # Hint utile si sudo passwordless n'est pas configuré
-            await ws.send_json({"type": "info",
-                "msg": "Astuce : si sudo demande un mot de passe, configure sudoers passwordless ou lance manuellement : sudo " + recipe})
-        await ws.send_json({"type": "end", "code": rc, "outfile": ""})
-    except WebSocketDisconnect:
-        if proc.returncode is None:
-            try: os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception: proc.terminate()
-    finally:
-        RUNNING_JOBS.pop(job_id, None)
-        try:
-            await ws.close()
-        except Exception:
-            pass
+    await stream_pty(
+        ws, argv,
+        start_meta={"cmd": f"{action} {tool}"},
+        end_hint=hint if action == "install" else None,
+    )
 
 
 # ─── Wordlists : catalogue + détection + téléchargement ──────────────────

@@ -883,6 +883,149 @@ function setupExecPanel() {
             CURRENT_WS.send(JSON.stringify({ action: "cancel" }));
         }
     });
+    const form = $("#exec-input-form");
+    if (form) {
+        form.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const input = $("#exec-input");
+            const v = input.value;
+            if (!CURRENT_WS || CURRENT_WS.readyState !== WebSocket.OPEN) return;
+            CURRENT_WS.send(JSON.stringify({ action: "input", data: v + "\n" }));
+            input.value = "";
+            // Echo non-password input dans la console
+            if (input.type !== "password") {
+                appendChunk($("#exec-output"), v + "\n");
+            } else {
+                appendChunk($("#exec-output"), "••••••\n");
+            }
+            // Réinit en mode texte après envoi
+            input.type = "text";
+            input.placeholder = "Tape ta commande puis Entrée…";
+        });
+    }
+}
+
+function setExecInputEnabled(enabled) {
+    const input = $("#exec-input");
+    const btn = $(".exec-input-send");
+    if (input) input.disabled = !enabled;
+    if (btn) btn.disabled = !enabled;
+    if (enabled && input) setTimeout(() => input.focus(), 50);
+}
+
+// ─── ANSI parser + chunk renderer ──────────────────────────────────────
+// Convertit du texte avec codes ANSI SGR en segments {text, cls}. Strippe
+// les autres séquences d'échappement (OSC, cursor, etc.) et les \r.
+const _ANSI_RE = /\x1b\[([0-9;?]*)([A-Za-z])/g;
+const _OSC_RE  = /\x1b\][^\x07]*\x07/g;
+const _KEY_RE  = /\x1b[=>]/g;
+
+function ansiToSegments(text) {
+    text = text.replace(_OSC_RE, "").replace(_KEY_RE, "").replace(/\r(?!\n)/g, "");
+    const segments = [];
+    const state = { classes: new Set() };
+    let buf = "";
+    let lastIdx = 0;
+    let m;
+    _ANSI_RE.lastIndex = 0;
+    while ((m = _ANSI_RE.exec(text)) !== null) {
+        buf += text.slice(lastIdx, m.index);
+        lastIdx = _ANSI_RE.lastIndex;
+        if (m[2] !== "m") continue; // skip cursor/erase codes
+        if (buf) {
+            segments.push({ text: buf, cls: [...state.classes].join(" ") });
+            buf = "";
+        }
+        const codes = (m[1] || "0").split(";").map(s => parseInt(s, 10) || 0);
+        applyAnsiCodes(codes, state.classes);
+    }
+    buf += text.slice(lastIdx);
+    if (buf) segments.push({ text: buf, cls: [...state.classes].join(" ") });
+    return segments;
+}
+
+function applyAnsiCodes(codes, set) {
+    if (codes.length === 0) codes = [0];
+    for (const c of codes) {
+        if (c === 0) { set.clear(); continue; }
+        if (c === 1) { set.add("ansi-bold"); continue; }
+        if (c === 2) { set.add("ansi-dim"); continue; }
+        if (c === 22) { set.delete("ansi-bold"); set.delete("ansi-dim"); continue; }
+        if (c >= 30 && c <= 37) {
+            [...set].forEach(cls => cls.startsWith("ansi-fg-") && set.delete(cls));
+            set.add("ansi-fg-" + (c - 30));
+            continue;
+        }
+        if (c >= 90 && c <= 97) {
+            [...set].forEach(cls => cls.startsWith("ansi-fg-") && set.delete(cls));
+            set.add("ansi-fg-b" + (c - 90));
+            continue;
+        }
+        if (c === 39) {
+            [...set].forEach(cls => cls.startsWith("ansi-fg-") && set.delete(cls));
+            continue;
+        }
+        // bg colors (40-47, 100-107) et autres : ignorés
+    }
+}
+
+const _lineStateMap = new WeakMap();
+
+function appendChunk(container, text) {
+    let state = _lineStateMap.get(container);
+    if (!state) { state = { line: null }; _lineStateMap.set(container, state); }
+    const segments = ansiToSegments(text);
+    for (const seg of segments) {
+        const parts = seg.text.split("\n");
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            if (part.length > 0) {
+                if (!state.line) {
+                    state.line = document.createElement("div");
+                    state.line.className = "exec-line";
+                    container.appendChild(state.line);
+                }
+                const span = document.createElement("span");
+                if (seg.cls) span.className = seg.cls;
+                span.textContent = part;
+                state.line.appendChild(span);
+            }
+            if (i < parts.length - 1) {
+                if (!state.line) {
+                    // Newline sur ligne vide → quand même créer un div
+                    state.line = document.createElement("div");
+                    state.line.className = "exec-line";
+                    container.appendChild(state.line);
+                }
+                state.line = null;
+            }
+        }
+    }
+    container.scrollTop = container.scrollHeight;
+}
+
+function resetOutput(container) {
+    _lineStateMap.delete(container);
+    container.innerHTML = "";
+}
+
+// Détecte un prompt de mot de passe sur la dernière ligne du buffer.
+let _execTail = "";
+function detectPasswordPrompt(chunk) {
+    _execTail = (_execTail + chunk).slice(-300);
+    const stripped = _execTail.replace(_ANSI_RE, "").replace(_OSC_RE, "");
+    const lastLine = stripped.split("\n").pop().toLowerCase();
+    const isPwd = /password[^:\n]{0,40}:\s*$/.test(lastLine)
+               || /\[sudo\][^:\n]*password[^:\n]*:\s*$/.test(lastLine);
+    const input = $("#exec-input");
+    if (!input) return;
+    if (isPwd) {
+        input.type = "password";
+        input.placeholder = "Mot de passe (caché) puis Entrée…";
+    } else {
+        // On ne reset pas en texte ici — l'utilisateur peut être encore en
+        // train de taper son password. Le reset arrive après l'envoi.
+    }
 }
 
 function setupLogout() {
@@ -908,9 +1051,9 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
     $("#exec-panel").hidden = false;
     $("#exec-title").textContent = `▶ ${label}`;
     $("#exec-cmd").textContent = "Initialisation...";
-    $("#exec-output").innerHTML = "";
+    resetOutput($("#exec-output"));
+    _execTail = "";
 
-    // Card running state
     if (cardEl) {
         cardEl.classList.remove("done");
         cardEl.classList.add("running");
@@ -919,7 +1062,7 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
         const rb = cardEl.querySelector(".tool-result-badge");
         if (rb) rb.hidden = true;
     }
-    if (miniOutputEl) miniOutputEl.innerHTML = "";
+    if (miniOutputEl) { resetOutput(miniOutputEl); miniOutputEl.hidden = false; }
 
     const module = guessModule(tool);
     const target = params?.target || params?.domain || params?.url || "";
@@ -938,22 +1081,22 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
         if (msg.type === "start") {
             $("#exec-cmd").textContent = msg.cmd;
             updateTicker("RUNNING", msg.cmd);
-            appendLine(out, `[+] Démarrage — sortie : ${msg.outfile}`, "sev-low");
-        } else if (msg.type === "line") {
-            appendLine(out, msg.data, classifyLine(msg.data));
-            if (miniOutputEl) {
-                appendLine(miniOutputEl, msg.data, classifyLine(msg.data));
-                miniOutputEl.scrollTop = miniOutputEl.scrollHeight;
-            }
+            appendChunk(out, `[+] Sortie : ${msg.outfile}\n`);
+            setExecInputEnabled(true);
+        } else if (msg.type === "data") {
+            appendChunk(out, msg.data);
+            detectPasswordPrompt(msg.data);
+            if (miniOutputEl) appendChunk(miniOutputEl, msg.data);
         } else if (msg.type === "info") {
-            appendLine(out, "[i] " + msg.msg, "sev-medium");
+            appendChunk(out, "[i] " + msg.msg + "\n");
         } else if (msg.type === "error") {
-            appendLine(out, "[!] " + msg.msg, "sev-critical");
+            appendChunk(out, "[!] " + msg.msg + "\n");
         } else if (msg.type === "end") {
-            appendLine(out, `\n[✓] Terminé (code ${msg.code}) — ${msg.outfile}`, "open");
+            appendChunk(out, `\n[${msg.code === 0 ? "✓" : "✗"}] Terminé (code ${msg.code})\n`);
             updateTicker("TERMINÉ", label);
             setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
             removeDashJob(jobId);
+            setExecInputEnabled(false);
             if (cardEl) {
                 cardEl.classList.remove("running");
                 cardEl.classList.add("done");
@@ -970,11 +1113,11 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
             refreshStatus();
             refreshRecent();
         }
-        out.scrollTop = out.scrollHeight;
     };
-    ws.onerror = () => appendLine($("#exec-output"), "[!] Erreur WebSocket", "sev-critical");
+    ws.onerror = () => appendChunk($("#exec-output"), "[!] Erreur WebSocket\n");
     ws.onclose = () => {
         CURRENT_WS = null;
+        setExecInputEnabled(false);
         removeDashJob(jobId);
         if (cardEl) {
             cardEl.classList.remove("running");
@@ -1412,7 +1555,8 @@ function manageTool(recipe, action, label) {
     $("#exec-panel").hidden = false;
     $("#exec-title").textContent = `${action === "install" ? "⬇" : "🗑"} ${action === "install" ? "Installation" : "Désinstallation"} — ${label}`;
     $("#exec-cmd").textContent = "Initialisation...";
-    $("#exec-output").innerHTML = "";
+    resetOutput($("#exec-output"));
+    _execTail = "";
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/manage`);
@@ -1427,18 +1571,21 @@ function manageTool(recipe, action, label) {
         if (msg.type === "start") {
             $("#exec-cmd").textContent = msg.cmd;
             updateTicker("RUNNING", msg.cmd);
-            appendLine(out, `[+] ${msg.cmd}`, "sev-low");
-        } else if (msg.type === "line") {
-            appendLine(out, msg.data, classifyLine(msg.data));
+            appendChunk(out, `[+] ${msg.cmd}\n`);
+            setExecInputEnabled(true);
+        } else if (msg.type === "data") {
+            appendChunk(out, msg.data);
+            detectPasswordPrompt(msg.data);
         } else if (msg.type === "info") {
-            appendLine(out, "[i] " + msg.msg, "sev-medium");
+            appendChunk(out, "[i] " + msg.msg + "\n");
         } else if (msg.type === "error") {
-            appendLine(out, "[!] " + msg.msg, "sev-critical");
+            appendChunk(out, "[!] " + msg.msg + "\n");
         } else if (msg.type === "end") {
             const ok = msg.code === 0;
-            appendLine(out, `\n[${ok ? "✓" : "✗"}] Terminé (code ${msg.code})`, ok ? "open" : "sev-critical");
+            appendChunk(out, `\n[${ok ? "✓" : "✗"}] Terminé (code ${msg.code})\n`);
             updateTicker(ok ? "TERMINÉ" : "ERREUR", label);
             setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
+            setExecInputEnabled(false);
             await refreshStatus();
             renderToolsStatus();
             renderReconSection();
@@ -1446,8 +1593,10 @@ function manageTool(recipe, action, label) {
             renderWebSection();
             renderAdSection();
         }
-        out.scrollTop = out.scrollHeight;
     };
-    ws.onerror = () => appendLine($("#exec-output"), "[!] Erreur WebSocket", "sev-critical");
-    ws.onclose = () => { CURRENT_WS = null; };
+    ws.onerror = () => appendChunk($("#exec-output"), "[!] Erreur WebSocket\n");
+    ws.onclose = () => {
+        CURRENT_WS = null;
+        setExecInputEnabled(false);
+    };
 }

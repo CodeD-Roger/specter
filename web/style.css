@@ -933,7 +933,64 @@ input:focus, select:focus { border-color: var(--accent); }
     border: none;
     border-radius: 0;
     max-height: none;
+    overflow-y: auto;
 }
+.exec-line {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.exec-input-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+}
+.exec-input-prompt {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 14px;
+}
+#exec-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 4px 0;
+}
+#exec-input:disabled { opacity: 0.4; cursor: not-allowed; }
+#exec-input[type="password"] { letter-spacing: 0.15em; }
+.exec-input-send {
+    font-size: 11px;
+    padding: 4px 10px;
+}
+.exec-input-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── ANSI colors (SGR codes) ───────────────────────────────────────── */
+.ansi-bold   { font-weight: 700; }
+.ansi-dim    { opacity: 0.65; }
+.ansi-fg-0   { color: #4a4a4a; }              /* black */
+.ansi-fg-1   { color: #e06c75; }              /* red */
+.ansi-fg-2   { color: #98c379; }              /* green */
+.ansi-fg-3   { color: #e5c07b; }              /* yellow */
+.ansi-fg-4   { color: #61afef; }              /* blue */
+.ansi-fg-5   { color: #c678dd; }              /* magenta */
+.ansi-fg-6   { color: #56b6c2; }              /* cyan */
+.ansi-fg-7   { color: #dcdfe4; }              /* white */
+.ansi-fg-b0  { color: #5c6370; }              /* bright black */
+.ansi-fg-b1  { color: #ff7b86; }              /* bright red */
+.ansi-fg-b2  { color: #b5e890; }              /* bright green */
+.ansi-fg-b3  { color: #ffd980; }              /* bright yellow */
+.ansi-fg-b4  { color: #82c8ff; }              /* bright blue */
+.ansi-fg-b5  { color: #e08ff5; }              /* bright magenta */
+.ansi-fg-b6  { color: #76d3df; }              /* bright cyan */
+.ansi-fg-b7  { color: #ffffff; }              /* bright white */
 
 /* ─── Modal ─────────────────────────────────────────────────────────── */
 .modal {

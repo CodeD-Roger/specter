@@ -436,7 +436,13 @@
                 <button id="exec-close" class="btn-ghost">×</button>
             </div>
         </div>
-        <pre id="exec-output" class="exec-output"></pre>
+        <div id="exec-output" class="exec-output"></div>
+        <form id="exec-input-form" class="exec-input-form" autocomplete="off">
+            <span class="exec-input-prompt">❯</span>
+            <input id="exec-input" type="text" placeholder="Tape ta commande puis Entrée…"
+                   autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" disabled>
+            <button type="submit" class="btn-ghost exec-input-send" disabled>Envoyer</button>
+        </form>
     </aside>
 
     <!-- ─── File viewer modal ─────────────────────────────────────── -->

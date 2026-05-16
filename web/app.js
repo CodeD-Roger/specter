@@ -246,6 +246,19 @@ function updateJobCount() {
     const n = ACTIVE_JOBS.size;
     const el = $("#dash-jobs-count");
     if (el) el.textContent = `${n} actif`;
+    updateNavBadges();
+}
+
+function updateNavBadges() {
+    const counts = { recon: 0, scan: 0, web: 0, ad: 0 };
+    for (const job of ACTIVE_JOBS.values()) {
+        if (counts.hasOwnProperty(job.module)) counts[job.module]++;
+    }
+    $$(".sbo-item-badge[data-badge]").forEach((b) => {
+        const n = counts[b.dataset.badge] || 0;
+        if (n > 0) { b.textContent = String(n); b.hidden = false; }
+        else { b.hidden = true; }
+    });
 }
 
 function escHtml(s) {

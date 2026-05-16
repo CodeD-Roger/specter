@@ -138,6 +138,7 @@ async function launchApp() {
         renderReconSection();
         renderScanSection();
         renderWebSection();
+        renderAdSection();
         await refreshRecent();
     } catch (e) {
         console.error(e);
@@ -215,6 +216,7 @@ function renderToolGrids() {
         if (phase === "recon") continue; // handled by renderReconSection
         if (phase === "scan")  continue; // handled by renderScanSection
         if (phase === "web")   continue; // handled by renderWebSection
+        if (phase === "ad")    continue; // handled by renderAdSection
         const grid = $(`#${phase}-tools`);
         if (!grid) continue;
         grid.innerHTML = "";
@@ -249,12 +251,17 @@ const TOOL_BINARY_MAP = {
     ffuf: "ffuf", gobuster: "gobuster", feroxbuster: "feroxbuster",
     dirb: "dirb", nuclei: "nuclei", nikto: "nikto", wapiti: "wapiti",
     sqlmap: "sqlmap", wpscan: "wpscan", sslscan: "sslscan",
+    // ad — nxc can be installed as nxc, netexec or crackmapexec
+    smbclient: "smbclient", smbmap: "smbmap", enum4linux: "enum4linux",
+    nxc: ["nxc", "netexec", "crackmapexec"],
 };
 
 function isToolAvailable(toolId) {
     if (!STATUS || !STATUS.tools) return null;
     const bin = TOOL_BINARY_MAP[toolId];
-    return bin != null ? (STATUS.tools[bin] === true) : null;
+    if (bin == null) return null;
+    if (Array.isArray(bin)) return bin.some(b => STATUS.tools[b] === true);
+    return STATUS.tools[bin] === true;
 }
 
 function renderReconSection() {
@@ -525,6 +532,64 @@ function setupSharedWebInputs() {
 
     if (wordlistInp) wordlistInp.addEventListener("input", e => {
         document.querySelectorAll("#web-tools input[data-web-field='wordlist']").forEach(i => i.value = e.target.value);
+    });
+}
+
+// ─── Active Directory pipeline ────────────────────────────────────────
+
+const AD_PIPELINE = [
+    { id: 1, label: "SMB",                   desc: "Énumération des partages et permissions SMB",                       tools: ["smbclient", "smbmap"] },
+    { id: 2, label: "Énumération système",   desc: "Utilisateurs, groupes, politiques, RID cycling via enum4linux",    tools: ["enum4linux"] },
+    { id: 3, label: "Multi-protocoles",      desc: "Authentification et énumération via SMB, LDAP, WinRM, MSSQL...",   tools: ["nxc"] },
+];
+
+function renderAdSection() {
+    const container = document.getElementById("ad-tools");
+    if (!container) return;
+    container.innerHTML = "";
+    container.className = "recon-pipeline";
+
+    for (const stage of AD_PIPELINE) {
+        const stageEl = document.createElement("div");
+        stageEl.className = "recon-stage";
+
+        const header = document.createElement("div");
+        header.className = "recon-stage-header";
+        header.innerHTML = `
+            <div class="recon-stage-num">${stage.id}</div>
+            <div>
+                <div class="recon-stage-label">${stage.label}</div>
+                <div class="recon-stage-desc">${stage.desc}</div>
+            </div>`;
+        stageEl.appendChild(header);
+
+        const grid = document.createElement("div");
+        grid.className = "recon-stage-grid";
+        for (const toolId of stage.tools) {
+            const spec = CATALOG[toolId];
+            if (!spec) continue;
+            grid.appendChild(buildPipelineCard(toolId, spec, 'ad'));
+        }
+        stageEl.appendChild(grid);
+        container.appendChild(stageEl);
+    }
+
+    setupSharedAdInputs();
+}
+
+function setupSharedAdInputs() {
+    const targetInp   = document.getElementById("ad-target");
+    const userInp     = document.getElementById("ad-user");
+    const passwordInp = document.getElementById("ad-password");
+
+    if (targetInp) targetInp.addEventListener("input", e => {
+        document.querySelectorAll("#ad-tools input[data-ad-field='target']").forEach(i => i.value = e.target.value);
+    });
+    if (userInp) userInp.addEventListener("input", e => {
+        document.querySelectorAll("#ad-tools input[data-ad-field='user']").forEach(i => i.value = e.target.value);
+    });
+    if (passwordInp) passwordInp.addEventListener("input", e => {
+        document.querySelectorAll("#ad-tools input[data-ad-field='password']").forEach(i => i.value = e.target.value);
     });
 }
 

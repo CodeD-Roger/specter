@@ -213,7 +213,29 @@
                 <h1>🏢 Active Directory</h1>
                 <p>SMB, LDAP, Kerberos, NetExec, enum4linux.</p>
             </header>
-            <div id="ad-tools" class="tool-grid"></div>
+
+            <div class="recon-target-bar card">
+                <div class="recon-target-row">
+                    <div class="recon-target-field">
+                        <label for="ad-target">Cible (DC / IP)</label>
+                        <input type="text" id="ad-target" placeholder="192.168.1.10 ou dc.domain.local"
+                               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    </div>
+                    <div class="recon-target-field">
+                        <label for="ad-user">Utilisateur</label>
+                        <input type="text" id="ad-user" placeholder="administrator"
+                               autocomplete="off" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <div class="recon-target-field">
+                        <label for="ad-password">Mot de passe / Hash</label>
+                        <input type="text" id="ad-password" placeholder="Password1 ou :NThash"
+                               autocomplete="off" spellcheck="false">
+                    </div>
+                </div>
+                <p class="hint" style="margin:8px 0 0">Pré-remplit la cible et les credentials sur tous les outils ci-dessous.</p>
+            </div>
+
+            <div id="ad-tools"></div>
         </section>
 
         <!-- ─── Résultats ──────────────────────────────────────────── -->

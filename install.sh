@@ -7,6 +7,16 @@
 
 set -u
 
+# ─── Chemins globaux ───────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Cache Go persistant (hors /tmp qui est tmpfs sur les sessions Live)
+SPECTER_CACHE="${SPECTER_CACHE:-/var/cache/specter}"
+export GOPATH="$SPECTER_CACHE/go"
+export GOMODCACHE="$GOPATH/pkg/mod"
+export GOCACHE="$SPECTER_CACHE/go-build"
+mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE" 2>/dev/null || true
+
 # ─── Couleurs ──────────────────────────────────────────────────────────────
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -46,11 +56,52 @@ log_phase()   { echo -e "\n${MAGENTA}${BOLD}══ $* ══${NC}"; }
 have() { command -v "$1" &> /dev/null; }
 
 # Log de débogage (apt, pip, downloads…) — toujours visible dans logs/install.log
-INSTALL_LOG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logs/install.log"
+INSTALL_LOG="$SCRIPT_DIR/logs/install.log"
 mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null
 : > "$INSTALL_LOG" 2>/dev/null
 
 logf() { echo "[$(date '+%H:%M:%S')] $*" >> "$INSTALL_LOG" 2>/dev/null; }
+
+# ─── Disque & nettoyage ────────────────────────────────────────────────────
+free_space_gb() {
+    local kb
+    kb=$(df --output=avail / 2>/dev/null | tail -1)
+    echo $(( kb / 1024 / 1024 ))
+}
+
+apt_clean() {
+    apt-get clean >> "$INSTALL_LOG" 2>&1 || true
+    rm -rf /var/cache/apt/archives/partial/*.deb 2>/dev/null || true
+}
+
+# Nettoie cache apt + cache modules Go quand le disque devient critique
+cleanup_if_low() {
+    local threshold=${1:-4}
+    local g
+    g=$(free_space_gb)
+    if (( g < threshold )); then
+        log_warn "Espace libre ${g} Go < ${threshold} Go — nettoyage des caches..."
+        apt_clean
+        if [ -d "$GOMODCACHE" ]; then
+            chmod -R u+w "$GOMODCACHE" 2>/dev/null || true
+            rm -rf "$GOMODCACHE"/* 2>/dev/null || true
+        fi
+        log_info "Espace après nettoyage : $(free_space_gb) Go"
+    fi
+}
+
+# ─── Détection OS ──────────────────────────────────────────────────────────
+OS_ID=""
+OS_LIKE=""
+OS_VER=""
+is_kali()   { [[ "$OS_ID" == "kali" ]]; }
+is_debian() { [[ "$OS_ID" == "debian" ]]; }
+is_ubuntu() { [[ "$OS_ID" == "ubuntu" ]]; }
+# Vrai pour toute famille Debian-like (Debian, Ubuntu, Kali, Mint, Parrot…)
+is_debian_family() {
+    [[ "$OS_ID" =~ ^(debian|ubuntu|kali|linuxmint|parrot|raspbian)$ ]] \
+        || [[ " $OS_LIKE " =~ \ debian\  ]] || [[ " $OS_LIKE " =~ \ ubuntu\  ]]
+}
 
 # Tente d'installer un paquet apt ; logge les erreurs dans logs/install.log
 apt_try() {
@@ -110,7 +161,9 @@ WRAPPER
     log_ok "$name installé dans $opt_dir"
 }
 
-# Installe un binaire Go (ProjectDiscovery, etc.) dans /usr/local/bin
+# Installe un binaire Go (ProjectDiscovery, etc.) dans /usr/local/bin.
+# Utilise GOPATH/GOMODCACHE persistants (cf. en-tête) au lieu de /tmp afin
+# d'éviter la saturation tmpfs sur les sessions Live.
 go_install_bin() {
     local pkg=$1
     local name
@@ -128,9 +181,16 @@ go_install_bin() {
         log_warn "Go non installé, impossible d'installer $name"
         return 1
     fi
+    # Nettoyage préventif : certains binaires (nuclei) tirent ~2 Go de deps
+    cleanup_if_low 5
     log_info "Installation de $name via go install..."
-    GOBIN=/usr/local/bin go install "$pkg" 2>/dev/null \
-        || GOPATH=/tmp/go GOBIN=/usr/local/bin go install "$pkg"
+    if GOBIN=/usr/local/bin go install "$pkg" >> "$INSTALL_LOG" 2>&1; then
+        log_ok "$name installé"
+        return 0
+    else
+        log_warn "Échec go install $name (voir logs/install.log)"
+        return 1
+    fi
 }
 
 # ─── Prérequis ─────────────────────────────────────────────────────────────
@@ -142,12 +202,22 @@ check_root() {
 }
 
 detect_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        log_ok "OS détecté : $NAME $VERSION_ID"
-    else
-        log_err "Impossible de détecter l'OS"
+    if [ ! -f /etc/os-release ]; then
+        log_err "Impossible de détecter l'OS (pas de /etc/os-release)"
         exit 1
+    fi
+    . /etc/os-release
+    OS_ID="${ID:-}"
+    OS_LIKE="${ID_LIKE:-}"
+    OS_VER="${VERSION_ID:-}"
+    log_ok "OS détecté : ${NAME:-?} ${VERSION_ID:-} (id=$OS_ID, like=$OS_LIKE)"
+    if ! is_debian_family; then
+        log_err "OS non supporté : $OS_ID — ce script ne gère que Debian/Ubuntu/Kali/Mint/Parrot."
+        exit 1
+    fi
+    # Warning Live session (overlay) où le disque persistant est limité
+    if mount | grep -qE '^/dev/loop.*on / type (squashfs|overlay)'; then
+        log_warn "Session Live détectée — installation possible mais espace réduit."
     fi
 }
 
@@ -167,14 +237,16 @@ check_disk_space() {
 
 update_system() {
     log_phase "MISE À JOUR DU SYSTÈME"
-    if ! apt-get update; then
+    if ! apt-get update >> "$INSTALL_LOG" 2>&1; then
         log_err "Échec de apt-get update — vérifie ta connexion"
         exit 1
     fi
-    apt-get upgrade -y &> /dev/null || true
+    # On évite apt-get upgrade : il avale 200 Mo - 1 Go selon l'image et
+    # n'apporte rien à l'install des outils. Économie cruciale sur Live.
     apt_try software-properties-common
     apt_try ca-certificates
     apt_try gnupg
+    apt_clean
 }
 
 # ─── Installations par catégorie ───────────────────────────────────────────
@@ -274,15 +346,32 @@ install_recon_tools() {
 install_web_tools() {
     log_phase "WEB / FUZZING / VULN"
 
-    # Apt
-    for p in nikto dirb gobuster sqlmap wapiti; do
+    # Apt — paquets disponibles sur la plupart des distros Debian-like
+    for p in nikto dirb sqlmap; do
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
+
+    # gobuster : absent de Debian < trixie → fallback go install
+    if apt_try gobuster; then
+        log_ok "gobuster"
+    else
+        log_info "gobuster non dispo via apt — fallback go install"
+        go_install_bin github.com/OJ/gobuster/v3@latest
+    fi
+
+    # wapiti : absent du repo Debian → fallback pipx (paquet PyPI : wapiti3)
+    if apt_try wapiti; then
+        log_ok "wapiti"
+    else
+        log_info "wapiti non dispo via apt — fallback pipx"
+        pipx_install wapiti3 && log_ok "wapiti via pipx" || log_warn "Échec wapiti"
+    fi
 
     # ffuf via go (le paquet apt est souvent ancien)
     go_install_bin github.com/ffuf/ffuf/v2@latest
 
-    # nuclei + templates
+    # nuclei + templates — gros build, on nettoie avant
+    cleanup_if_low 6
     go_install_bin github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
     if have nuclei; then
         log_info "Mise à jour des templates nuclei..."
@@ -303,7 +392,8 @@ install_web_tools() {
 install_ad_tools() {
     log_phase "ACTIVE DIRECTORY / WINDOWS"
 
-    # Apt (les paquets vraiment dispos sur Ubuntu noble)
+    # Apt (les paquets vraiment dispos sur Ubuntu / Debian)
+    cleanup_if_low 4
     for p in smbclient ldap-utils smbmap ldapscripts hashid; do
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
@@ -411,6 +501,7 @@ WRAPPER
 
 install_cred_tools() {
     log_phase "CREDENTIALS / BRUTE-FORCE"
+    cleanup_if_low 4
     for p in hydra medusa john hashcat hashid crunch; do
         if apt_try "$p"; then log_ok "$p"; else log_warn "Échec apt : $p"; fi
     done
@@ -442,22 +533,30 @@ install_cred_tools() {
 
 install_exploit_tools() {
     log_phase "EXPLOITATION"
+    cleanup_if_low 5
 
-    # Metasploit
+    # Metasploit — sur Debian pur, le paquet apt n'existe pas → omnibus
     if have msfconsole; then
         log_ok "Metasploit déjà installé"
     else
         log_info "Installation de Metasploit..."
-        if apt_try metasploit-framework; then
+        local msf_installed=0
+        if (is_ubuntu || is_kali) && apt_try metasploit-framework; then
             log_ok "metasploit-framework via apt"
-        else
-            log_warn "apt a échoué, tentative via script officiel..."
-            curl -fsSL https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb \
-                -o /tmp/msfinstall \
+            msf_installed=1
+        fi
+        if (( msf_installed == 0 )); then
+            log_info "Installation via script officiel Rapid7..."
+            if curl -fsSL https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb \
+                    -o /tmp/msfinstall \
                 && chmod +x /tmp/msfinstall \
-                && /tmp/msfinstall \
-                && rm -f /tmp/msfinstall \
-                && log_ok "Metasploit installé"
+                && /tmp/msfinstall >> "$INSTALL_LOG" 2>&1; then
+                rm -f /tmp/msfinstall
+                log_ok "Metasploit installé via omnibus"
+            else
+                rm -f /tmp/msfinstall
+                log_warn "Échec Metasploit (voir logs/install.log)"
+            fi
         fi
         if apt_try postgresql; then
             systemctl start postgresql &> /dev/null
@@ -579,15 +678,19 @@ install_web_ui() {
 # ─── Setup final ───────────────────────────────────────────────────────────
 setup_directories() {
     log_phase "ARBORESCENCE PROJET"
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    mkdir -p "$script_dir"/{scans,reports,logs,loot,wordlists}
-    mkdir -p "$script_dir/scans"/{nmap,recon,web,ad}
+    cleanup_if_low 2
+    local d
+    for d in scans reports logs loot wordlists scans/nmap scans/recon scans/web scans/ad; do
+        if ! mkdir -p "$SCRIPT_DIR/$d" 2>>"$INSTALL_LOG"; then
+            log_warn "Impossible de créer $SCRIPT_DIR/$d (disque plein ?)"
+        fi
+    done
 
     if [ -n "${SUDO_USER:-}" ] && id "$SUDO_USER" &> /dev/null; then
-        chown -R "$SUDO_USER:$SUDO_USER" "$script_dir"/{scans,reports,logs,loot,wordlists}
+        chown -R "$SUDO_USER:$SUDO_USER" \
+            "$SCRIPT_DIR"/{scans,reports,logs,loot,wordlists} 2>/dev/null || true
     fi
-    log_ok "Répertoires créés sous $script_dir"
+    log_ok "Répertoires créés sous $SCRIPT_DIR"
 }
 
 verify_installations() {
@@ -850,19 +953,20 @@ main() {
     install_base
     setup_pipx
     install_go
+    apt_clean
 
     # Phases optionnelles via --skip / --only
-    run_phase scan      install_scan_tools
-    run_phase recon     install_recon_tools
-    run_phase web       install_web_tools
-    run_phase ad        install_ad_tools
-    run_phase creds     install_cred_tools
-    run_phase exploit   install_exploit_tools
-    run_phase postexpl  install_postexpl_tools
-    run_phase traffic   install_traffic_tools
-    run_phase reporting install_reporting_tools
-    run_phase cloud     install_cloud_tools
-    run_phase web-ui    install_web_ui
+    run_phase scan      install_scan_tools      ; apt_clean
+    run_phase recon     install_recon_tools     ; apt_clean
+    run_phase web       install_web_tools       ; apt_clean
+    run_phase ad        install_ad_tools        ; apt_clean
+    run_phase creds     install_cred_tools      ; apt_clean
+    run_phase exploit   install_exploit_tools   ; apt_clean
+    run_phase postexpl  install_postexpl_tools  ; apt_clean
+    run_phase traffic   install_traffic_tools   ; apt_clean
+    run_phase reporting install_reporting_tools ; apt_clean
+    run_phase cloud     install_cloud_tools     ; apt_clean
+    run_phase web-ui    install_web_ui          ; apt_clean
 
     setup_directories
     verify_installations

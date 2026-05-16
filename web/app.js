@@ -1108,6 +1108,16 @@ let currentFilePath = null;
 
 function setupModal() {
     $("#file-close").addEventListener("click", () => $("#file-modal").hidden = true);
+    $("#file-download").addEventListener("click", () => {
+        if (!currentFilePath) return;
+        const url = `/api/download?path=${encodeURIComponent(currentFilePath)}&token=${encodeURIComponent(TOKEN)}`;
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = currentFilePath.split("/").pop();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
     $("#file-delete").addEventListener("click", async () => {
         if (!currentFilePath) return;
         if (!confirm("Supprimer ce fichier ?")) return;

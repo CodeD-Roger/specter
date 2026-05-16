@@ -148,19 +148,19 @@ def b_whatweb(p):         return ["whatweb", "-v", p["url"]]
 def b_katana(p):          return ["katana", "-u", p["url"], "-silent"]
 def b_theharvester(p):    return ["theHarvester", "-d", p["domain"], "-b", "all", "-l", "200"]
 
-def b_nmap_stealth(p):    return ["sudo", "nmap", "-sS", "-v", p["target"]]
-def b_nmap_ultra(p):      return ["sudo", "nmap", "-sS", "-T2", "-f", "-D", "RND:5", "--data-length", "24", p["target"]]
-def b_nmap_aggr(p):       return ["sudo", "nmap", "-A", "-T4", "-v", p["target"]]
-def b_nmap_full(p):       return ["sudo", "nmap", "-sT", "-p-", "-v", p["target"]]
-def b_nmap_udp(p):        return ["sudo", "nmap", "-sU", "--top-ports", "200", "-v", p["target"]]
-def b_nmap_ipv6(p):       return ["sudo", "nmap", "-6", "-v", p["target"]]
-def b_nmap_ack(p):        return ["sudo", "nmap", "-sA", "-v", p["target"]]
+def b_nmap_stealth(p):    return ["sudo", "-n", "nmap", "-sS", "-v", p["target"]]
+def b_nmap_ultra(p):      return ["sudo", "-n", "nmap", "-sS", "-T2", "-f", "-D", "RND:5", "--data-length", "24", p["target"]]
+def b_nmap_aggr(p):       return ["sudo", "-n", "nmap", "-A", "-T4", "-v", p["target"]]
+def b_nmap_full(p):       return ["sudo", "-n", "nmap", "-sT", "-p-", "-v", p["target"]]
+def b_nmap_udp(p):        return ["sudo", "-n", "nmap", "-sU", "--top-ports", "200", "-v", p["target"]]
+def b_nmap_ipv6(p):       return ["sudo", "-n", "nmap", "-6", "-v", p["target"]]
+def b_nmap_ack(p):        return ["sudo", "-n", "nmap", "-sA", "-v", p["target"]]
 def b_masscan(p):
     rate = str(int(p.get("rate", 1000)))
-    return ["sudo", "masscan", p["target"], "-p", p.get("ports", "1-65535"), "--rate", rate]
+    return ["sudo", "-n", "masscan", p["target"], "-p", p.get("ports", "1-65535"), "--rate", rate]
 def b_rustscan(p):        return ["rustscan", "-a", p["target"], "--ulimit", "5000"]
 def b_naabu(p):           return ["naabu", "-host", p["target"], "-silent"]
-def b_nse(p):             return ["sudo", "nmap", "--script", p["category"], p["target"]]
+def b_nse(p):             return ["sudo", "-n", "nmap", "--script", p["category"], p["target"]]
 
 def b_ffuf(p):
     url = p["url"].rstrip("/") + "/FUZZ"
@@ -404,7 +404,13 @@ async def api_status(_: str = Depends(require_auth)):
     seen = set()
     for k, spec in TOOLS.items():
         argv = spec["build"]({n: "x" for n in spec["needs"]})
-        bin_ = argv[0] if argv[0] != "sudo" else argv[1]
+        # Skip past "sudo" and any flags (e.g. "-n") to find the real binary
+        i = 0
+        if argv[i] == "sudo":
+            i += 1
+            while i < len(argv) and argv[i].startswith("-"):
+                i += 1
+        bin_ = argv[i]
         if bin_ == "bash":  # pipeline
             bin_ = argv[-1].split("|")[-1].strip().split()[0]
         if bin_ in seen:
@@ -482,6 +488,20 @@ async def api_file_delete(path: str, _: str = Depends(require_auth)):
         raise HTTPException(400, "Refusé")
     target.unlink()
     return {"ok": True}
+
+
+@app.get("/api/download")
+async def api_download(path: str, _: str = Depends(require_auth)):
+    target = (ROOT / path).resolve()
+    if not str(target).startswith(str(ROOT.resolve())) or not target.is_file():
+        raise HTTPException(404, "Fichier introuvable")
+    if target.name == ".gitkeep":
+        raise HTTPException(400, "Refusé")
+    return FileResponse(
+        target,
+        filename=target.name,
+        media_type="application/octet-stream",
+    )
 
 
 # ─── WebSocket : exécution streaming ──────────────────────────────────────

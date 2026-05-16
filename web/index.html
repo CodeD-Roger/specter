@@ -105,33 +105,141 @@
 
         <!-- ─── Dashboard ────────────────────────────────────────────── -->
         <section class="view active" data-view="dashboard">
-            <header class="view-header">
-                <h1>Dashboard</h1>
-                <p>Aperçu global des opérations en cours.</p>
-            </header>
 
-            <div class="cards">
-                <div class="card stat"><div class="stat-num" id="stat-nmap">0</div><div class="stat-label">Scans Nmap</div></div>
-                <div class="card stat"><div class="stat-num" id="stat-recon">0</div><div class="stat-label">Recon</div></div>
-                <div class="card stat"><div class="stat-num" id="stat-web">0</div><div class="stat-label">Web</div></div>
-                <div class="card stat"><div class="stat-num" id="stat-ad">0</div><div class="stat-label">AD</div></div>
-                <div class="card stat"><div class="stat-num" id="stat-reports">0</div><div class="stat-label">Rapports</div></div>
-            </div>
-
-            <h2>Pipeline FULL RECON</h2>
-            <div class="card">
-                <p class="hint">Enchaîne <code>subfinder</code> → <code>dnsx</code> → <code>httpx</code> sur un domaine.</p>
-                <div class="form-row">
-                    <input type="text" id="pipeline-domain" placeholder="example.com">
-                    <button id="pipeline-run" class="btn-primary">🚀 Lancer le pipeline</button>
+            <!-- TOP BAR -->
+            <div class="dsh-bar">
+                <div class="dsh-title-wrap">
+                    <div class="dsh-eyebrow">/ DASHBOARD</div>
+                    <h1 class="dsh-title">Vue d'ensemble</h1>
                 </div>
-                <pre id="pipeline-output" class="output" hidden></pre>
+                <div class="dsh-bar-r">
+                    <div class="dsh-target-chip" id="dash-target-chip">
+                        <span class="dsh-tc-l">TARGET</span>
+                        <span class="dsh-tc-v" id="dash-target-display">—</span>
+                        <input class="dsh-tc-inp" id="dash-target-input" type="text" placeholder="example.com" autocomplete="off" autocapitalize="none" spellcheck="false">
+                        <button class="dsh-tc-btn" id="dash-target-edit-btn" title="Modifier la cible">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14 L4 14 L13 5 L11 3 L2 12 Z"/><line x1="9" y1="5" x2="11" y2="7"/></svg>
+                        </button>
+                    </div>
+                    <div class="dsh-stat-chips">
+                        <div class="dsh-sc"><span class="dsh-sc-n" id="stat-nmap">0</span><span class="dsh-sc-l">Nmap</span></div>
+                        <div class="dsh-sc"><span class="dsh-sc-n" id="stat-recon">0</span><span class="dsh-sc-l">Recon</span></div>
+                        <div class="dsh-sc"><span class="dsh-sc-n" id="stat-web">0</span><span class="dsh-sc-l">Web</span></div>
+                        <div class="dsh-sc"><span class="dsh-sc-n" id="stat-ad">0</span><span class="dsh-sc-l">AD</span></div>
+                        <div class="dsh-sc"><span class="dsh-sc-n" id="stat-reports">0</span><span class="dsh-sc-l">Rapports</span></div>
+                    </div>
+                </div>
             </div>
 
-            <h2>Activité récente</h2>
-            <div class="card">
-                <div id="recent-files" class="file-list"></div>
+            <!-- HERO PIPELINE -->
+            <section class="dsh-hero">
+                <div class="dsh-hero-inner">
+                    <div class="dsh-hero-l">
+                        <div class="dsh-hero-eyebrow">PIPELINE AUTOMATISÉ</div>
+                        <h2 class="dsh-hero-title">Full Recon</h2>
+                        <p class="dsh-hero-sub">Énumération de sous-domaines, résolution DNS et probing HTTP en chaîne.</p>
+                        <div class="dsh-chain">
+                            <span class="dsh-chain-step">subfinder</span>
+                            <span class="dsh-chain-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                            <span class="dsh-chain-step">dnsx</span>
+                            <span class="dsh-chain-arrow"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                            <span class="dsh-chain-step">httpx</span>
+                        </div>
+                        <div class="dsh-pipeline-row">
+                            <input type="text" id="pipeline-domain" placeholder="example.com" autocomplete="off" autocapitalize="none" spellcheck="false">
+                            <button class="dsh-pipeline-btn" id="pipeline-run" type="button">
+                                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2 L13 8 L4 14 Z"/></svg>
+                                Lancer
+                            </button>
+                        </div>
+                        <pre id="pipeline-output" class="output dsh-pipeline-out" hidden></pre>
+                    </div>
+                    <div class="dsh-hero-r">
+                        <div class="dsh-hero-stat">
+                            <div class="dsh-hero-stat-l">ÉTAPES</div>
+                            <div class="dsh-hero-stat-v">3</div>
+                        </div>
+                        <div class="dsh-hero-stat">
+                            <div class="dsh-hero-stat-l">DURÉE MOY.</div>
+                            <div class="dsh-hero-stat-v">~ 4 min</div>
+                        </div>
+                        <div class="dsh-hero-stat">
+                            <div class="dsh-hero-stat-l">DERNIER RUN</div>
+                            <div class="dsh-hero-stat-v" id="dash-pipeline-last">—</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- JOBS + QUICK LAUNCH -->
+            <div class="dsh-grid">
+                <div class="dsh-panel">
+                    <div class="dsh-panel-head">
+                        <div class="dsh-panel-title">Jobs en cours</div>
+                        <div class="dsh-panel-count" id="dash-jobs-count">0 actif</div>
+                    </div>
+                    <div id="dash-jobs-list">
+                        <div class="dsh-job-empty">Aucun job actif.<br><span class="k">Lance un scan depuis un module.</span></div>
+                    </div>
+                </div>
+                <div class="dsh-panel">
+                    <div class="dsh-panel-head">
+                        <div class="dsh-panel-title">Lancer un module</div>
+                    </div>
+                    <div class="dsh-launch">
+                        <div class="dsh-launch-row" data-nav="recon">
+                            <span class="dsh-launch-dot" style="background:#9b87ff;box-shadow:0 0 8px #9b87ff"></span>
+                            <div><div class="dsh-launch-name">Reconnaissance</div><div class="dsh-launch-sub">subfinder · dnsx · httpx · amass</div></div>
+                            <span></span>
+                            <span class="dsh-launch-arrow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                        </div>
+                        <div class="dsh-launch-row" data-nav="scan">
+                            <span class="dsh-launch-dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff"></span>
+                            <div><div class="dsh-launch-name">Scan réseau</div><div class="dsh-launch-sub">nmap · masscan · rustscan · naabu</div></div>
+                            <span></span>
+                            <span class="dsh-launch-arrow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                        </div>
+                        <div class="dsh-launch-row" data-nav="web">
+                            <span class="dsh-launch-dot" style="background:#3ade7e;box-shadow:0 0 8px #3ade7e"></span>
+                            <div><div class="dsh-launch-name">Web application</div><div class="dsh-launch-sub">ffuf · nuclei · nikto · gobuster</div></div>
+                            <span></span>
+                            <span class="dsh-launch-arrow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                        </div>
+                        <div class="dsh-launch-row" data-nav="ad">
+                            <span class="dsh-launch-dot" style="background:#ffb86b;box-shadow:0 0 8px #ffb86b"></span>
+                            <div><div class="dsh-launch-name">Active Directory</div><div class="dsh-launch-sub">netexec · enum4linux · ldapsearch</div></div>
+                            <span></span>
+                            <span class="dsh-launch-arrow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg></span>
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            <!-- RECENT RESULTS -->
+            <div class="dsh-panel">
+                <div class="dsh-panel-head">
+                    <div class="dsh-panel-title">Derniers résultats</div>
+                    <a class="dsh-panel-link" id="dash-recent-all" href="#">Tout voir
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="13" y2="8"/><path d="M9 4 L13 8 L9 12"/></svg>
+                    </a>
+                </div>
+                <table class="dsh-tbl">
+                    <thead>
+                        <tr>
+                            <th>Fichier</th>
+                            <th>Module</th>
+                            <th>Cible</th>
+                            <th>Taille</th>
+                            <th>Modifié</th>
+                            <th style="width:40px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="dash-recent-tbody">
+                        <tr><td colspan="6" class="dsh-tbl-empty">Chargement...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
         </section>
 
         <!-- ─── Recon ──────────────────────────────────────────────── -->

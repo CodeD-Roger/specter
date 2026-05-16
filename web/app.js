@@ -130,6 +130,7 @@ async function launchApp() {
     setupPipeline();
     setupTabs();
     setupLogout();
+    setupDashboard();
 
     try {
         CATALOG = await api("/api/catalog");
@@ -174,30 +175,181 @@ async function switchView(name) {
 
 async function refreshStatus() {
     STATUS = await api("/api/status");
-    $("#stat-nmap").textContent = STATUS.counts.nmap;
-    $("#stat-recon").textContent = STATUS.counts.recon;
-    $("#stat-web").textContent = STATUS.counts.web;
-    $("#stat-ad").textContent = STATUS.counts.ad;
+    $("#stat-nmap").textContent    = STATUS.counts.nmap;
+    $("#stat-recon").textContent   = STATUS.counts.recon;
+    $("#stat-web").textContent     = STATUS.counts.web;
+    $("#stat-ad").textContent      = STATUS.counts.ad;
     $("#stat-reports").textContent = STATUS.counts.reports;
 }
 
+// ─── Dashboard jobs registry ───────────────────────────────────────────
+
+const ACTIVE_JOBS = new Map(); // id → { label, module, target, startMs, el }
+let JOB_COUNTER = 0;
+
+function addDashJob(label, module = "scan", target = "") {
+    const id = ++JOB_COUNTER;
+    const startMs = Date.now();
+    const container = $("#dash-jobs-list");
+    container.querySelector(".dsh-job-empty")?.remove();
+
+    const el = document.createElement("div");
+    el.className = "dsh-job";
+    el.dataset.jobId = id;
+    el.innerHTML = `
+        <div class="dsh-job-r1">
+            <span class="dsh-job-dot"></span>
+            <span class="dsh-job-cmd">${escHtml(label)}</span>
+            <button class="dsh-job-stop" data-stop="${id}">STOP</button>
+        </div>
+        <div class="dsh-job-meta">
+            <span>module · <span class="dsh-job-meta-tag">${escHtml(module)}</span></span>
+            <span>cible · <span class="dsh-job-meta-tag">${escHtml(target || "—")}</span></span>
+            <span>durée · <span class="dsh-job-meta-tag dsh-elapsed">0s</span></span>
+        </div>
+        <div class="dsh-job-bar-wrap">
+            <div class="dsh-job-bar"><div class="dsh-job-bar-fill" style="width:2%"></div></div>
+            <div class="dsh-job-pct dsh-pct">—</div>
+        </div>`;
+    container.appendChild(el);
+    el.querySelector(`[data-stop="${id}"]`).addEventListener("click", () => removeDashJob(id));
+
+    const timer = setInterval(() => {
+        const s = Math.floor((Date.now() - startMs) / 1000);
+        const eEl = el.querySelector(".dsh-elapsed");
+        if (eEl) eEl.textContent = s < 60 ? `${s}s` : `${Math.floor(s/60)}m${s%60}s`;
+        const fill = el.querySelector(".dsh-job-bar-fill");
+        if (fill) fill.style.width = Math.min(90, 2 + s * 0.6) + "%";
+    }, 1000);
+
+    ACTIVE_JOBS.set(id, { label, module, target, startMs, el, timer });
+    updateJobCount();
+    return id;
+}
+
+function removeDashJob(id) {
+    const job = ACTIVE_JOBS.get(id);
+    if (!job) return;
+    clearInterval(job.timer);
+    job.el.remove();
+    ACTIVE_JOBS.delete(id);
+    if (ACTIVE_JOBS.size === 0) {
+        const container = $("#dash-jobs-list");
+        if (!container.querySelector(".dsh-job-empty")) {
+            container.innerHTML = '<div class="dsh-job-empty">Aucun job actif.<br><span class="k">Lance un scan depuis un module.</span></div>';
+        }
+    }
+    updateJobCount();
+}
+
+function updateJobCount() {
+    const n = ACTIVE_JOBS.size;
+    const el = $("#dash-jobs-count");
+    if (el) el.textContent = `${n} actif`;
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ─── Dashboard target chip ─────────────────────────────────────────────
+
+function setupDashboard() {
+    const display = $("#dash-target-display");
+    const input   = $("#dash-target-input");
+    const editBtn = $("#dash-target-edit-btn");
+
+    function startEdit() {
+        input.value = display.textContent === "—" ? "" : display.textContent;
+        display.style.display = "none";
+        input.style.display = "block";
+        input.focus();
+    }
+    function commitEdit() {
+        const v = input.value.trim();
+        if (v) display.textContent = v;
+        display.style.display = "";
+        input.style.display = "none";
+    }
+    editBtn?.addEventListener("click", () => {
+        if (input.style.display === "block") commitEdit(); else startEdit();
+    });
+    input?.addEventListener("blur", commitEdit);
+    input?.addEventListener("keydown", (e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") { input.style.display = "none"; display.style.display = ""; } });
+
+    // Quick launch rows → navigate to module
+    $$(".dsh-launch-row").forEach(row => {
+        row.addEventListener("click", () => switchView(row.dataset.nav));
+    });
+
+    // Recent "Tout voir" → go to results
+    $("#dash-recent-all")?.addEventListener("click", (e) => { e.preventDefault(); switchView("results"); });
+}
+
 async function refreshRecent() {
-    const container = $("#recent-files");
-    container.innerHTML = "";
+    const tbody = $("#dash-recent-tbody");
+    if (!tbody) return;
+    const moduleColor = { nmap: "#00d4ff", recon: "#9b87ff", web: "#3ade7e", ad: "#ffb86b" };
+    const moduleLabel = { nmap: "SCAN", recon: "RECON", web: "WEB", ad: "AD" };
     const cats = ["nmap", "recon", "web", "ad"];
     let all = [];
     for (const c of cats) {
         try {
             const r = await api(`/api/files?category=${c}`);
-            r.files.slice(0, 3).forEach((f) => all.push({ ...f, category: c }));
+            r.files.slice(0, 4).forEach((f) => all.push({ ...f, category: c }));
         } catch {}
     }
     all.sort((a, b) => b.mtime - a.mtime);
     if (all.length === 0) {
-        container.innerHTML = '<div class="empty">Aucun scan pour le moment.</div>';
+        tbody.innerHTML = '<tr><td colspan="6" class="dsh-tbl-empty">Aucun scan pour le moment.</td></tr>';
         return;
     }
-    all.slice(0, 10).forEach((f) => container.appendChild(buildFileItem(f)));
+    tbody.innerHTML = "";
+    all.slice(0, 10).forEach((f) => {
+        const age = formatAge(f.mtime);
+        const size = formatSize(f.size);
+        const col = moduleColor[f.category] || "#a8a8b4";
+        const lbl = moduleLabel[f.category] || f.category.toUpperCase();
+        const target = f.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><div class="dsh-tbl-name">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z"/><path d="M10 1.5 V4.5 H13"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="5" y1="10.5" x2="11" y2="10.5"/></svg>
+                ${escHtml(f.name)}
+            </div></td>
+            <td><span class="dsh-tag" style="color:${col}">${lbl}</span></td>
+            <td class="dsh-tbl-target">${escHtml(target)}</td>
+            <td class="dsh-tbl-size">${size}</td>
+            <td class="dsh-tbl-when">${age}</td>
+            <td class="dsh-tbl-action">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9 2 H14 V7"/><line x1="14" y1="2" x2="8" y2="8"/><path d="M14 9.5 V13.5 H2.5 V2 H6.5"/></svg>
+            </td>`;
+        tr.addEventListener("click", () => navigateToFile(f.category, f.name));
+        tbody.appendChild(tr);
+    });
+}
+
+function formatAge(mtime) {
+    if (!mtime) return "—";
+    const d = Math.floor((Date.now() / 1000 - mtime));
+    if (d < 60) return `il y a ${d}s`;
+    if (d < 3600) return `il y a ${Math.floor(d/60)}min`;
+    if (d < 86400) return `il y a ${Math.floor(d/3600)}h`;
+    return `il y a ${Math.floor(d/86400)}j`;
+}
+
+function formatSize(bytes) {
+    if (!bytes) return "—";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`;
+    return `${(bytes/1048576).toFixed(1)} MB`;
+}
+
+function navigateToFile(category, name) {
+    switchView("results");
+    currentCategory = category;
+    $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.cat === category));
+    setTimeout(() => loadFiles(category), 100);
 }
 
 // ─── Tool grids ────────────────────────────────────────────────────────
@@ -699,6 +851,14 @@ function setupLogout() {
     });
 }
 
+function guessModule(tool) {
+    if (!tool) return "scan";
+    if (["subfinder","amass","assetfinder","dnsx","httpx","whatweb","katana","theharvester"].includes(tool)) return "recon";
+    if (["ffuf","gobuster","feroxbuster","dirb","nuclei","nikto","wapiti","sqlmap","wpscan","sslscan"].includes(tool)) return "web";
+    if (["smbclient","smbmap","enum4linux","nxc"].includes(tool)) return "ad";
+    return "scan";
+}
+
 function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
     $("#exec-panel").hidden = false;
     $("#exec-title").textContent = `▶ ${label}`;
@@ -715,6 +875,10 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
         if (rb) rb.hidden = true;
     }
     if (miniOutputEl) miniOutputEl.innerHTML = "";
+
+    const module = guessModule(tool);
+    const target = params?.target || params?.domain || params?.url || "";
+    const jobId = addDashJob(label, module, target);
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/run`);
@@ -744,6 +908,7 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
             appendLine(out, `\n[✓] Terminé (code ${msg.code}) — ${msg.outfile}`, "open");
             updateTicker("TERMINÉ", label);
             setTimeout(() => updateTicker("STATUS", "Prêt"), 4000);
+            removeDashJob(jobId);
             if (cardEl) {
                 cardEl.classList.remove("running");
                 cardEl.classList.add("done");
@@ -765,6 +930,7 @@ function runTool(tool, label, params, miniOutputEl = null, cardEl = null) {
     ws.onerror = () => appendLine($("#exec-output"), "[!] Erreur WebSocket", "sev-critical");
     ws.onclose = () => {
         CURRENT_WS = null;
+        removeDashJob(jobId);
         if (cardEl) {
             cardEl.classList.remove("running");
             const lb = cardEl.querySelector(".recon-launch-btn");
@@ -800,8 +966,12 @@ function setupPipeline() {
         const dom = $("#pipeline-domain").value.trim();
         if (!dom) return;
         const out = $("#pipeline-output");
+        const btn = $("#pipeline-run");
         out.hidden = false;
         out.textContent = "Lancement du pipeline...\n";
+        btn.disabled = true;
+        btn.textContent = "En cours…";
+        const jobId = addDashJob(`Full Recon: ${dom}`, "recon", dom);
         try {
             const r = await api("/api/pipeline/recon", {
                 method: "POST",
@@ -812,10 +982,16 @@ function setupPipeline() {
                 `    Sous-domaines : ${r.counts.subs} → ${r.subs}\n` +
                 `    Vivants       : ${r.counts.live} → ${r.live}\n` +
                 `    Probe HTTP    : ${r.counts.probe} → ${r.probe}\n`;
+            const lastEl = $("#dash-pipeline-last");
+            if (lastEl) lastEl.textContent = "à l'instant";
             refreshStatus();
             refreshRecent();
         } catch (e) {
             out.textContent = "[!] Erreur : " + e.message;
+        } finally {
+            removeDashJob(jobId);
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2 L13 8 L4 14 Z"/></svg> Lancer';
         }
     });
 }

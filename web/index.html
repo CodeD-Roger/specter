@@ -447,17 +447,35 @@
 
     <!-- ─── File viewer modal ─────────────────────────────────────── -->
     <div id="file-modal" class="modal" hidden>
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="file-modal-name"></h3>
-                <div>
-                    <button id="file-download" class="btn-ghost">Télécharger</button>
-                    <button id="file-delete" class="btn-danger">Supprimer</button>
-                    <button id="file-close" class="btn-ghost">×</button>
+        <div class="modal-content file-viewer">
+            <div class="file-viewer-head">
+                <div class="file-viewer-title-wrap">
+                    <h3 id="file-modal-name" class="file-viewer-name"></h3>
+                    <div class="file-viewer-meta" id="file-modal-meta"></div>
+                </div>
+                <div class="file-viewer-actions">
+                    <div class="file-viewer-search-wrap">
+                        <svg class="file-viewer-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><line x1="10.3" y1="10.3" x2="13.5" y2="13.5"/></svg>
+                        <input id="file-search" class="file-viewer-search" type="text" placeholder="Rechercher…" autocomplete="off" spellcheck="false">
+                        <span id="file-search-count" class="file-viewer-search-count"></span>
+                    </div>
+                    <button id="file-wrap-toggle" class="btn-ghost file-viewer-btn" title="Retour à la ligne">↵ Wrap</button>
+                    <button id="file-download" class="btn-ghost file-viewer-btn">⬇ Télécharger</button>
+                    <button id="file-delete" class="btn-danger file-viewer-btn">🗑 Supprimer</button>
+                    <button id="file-close" class="btn-ghost file-viewer-btn" title="Fermer (Échap)">×</button>
                 </div>
             </div>
-            <div class="modal-meta" id="file-modal-meta"></div>
-            <pre id="file-modal-content" class="file-content"></pre>
+            <div id="file-modal-content" class="file-viewer-content nowrap"></div>
+            <div class="file-viewer-foot">
+                <span class="file-viewer-foot-l">
+                    <span id="file-modal-lines">0 lignes</span>
+                    <span id="file-modal-path-foot" class="file-viewer-path"></span>
+                </span>
+                <span class="file-viewer-foot-r">
+                    <span class="file-viewer-kbd">Échap</span> pour fermer
+                    · <span class="file-viewer-kbd">Ctrl+F</span> pour chercher
+                </span>
+            </div>
         </div>
     </div>
 

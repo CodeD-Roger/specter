@@ -996,50 +996,199 @@ input:focus, select:focus { border-color: var(--accent); }
 .modal {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 200;
+    padding: 20px;
 }
 .modal-content {
     background: var(--bg-2);
     border: 1px solid var(--accent);
     border-radius: 10px;
-    width: 90vw;
+    width: 100%;
     max-width: 1100px;
-    max-height: 85vh;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 217, 255, 0.1);
 }
-.modal-header {
+
+/* ─── File viewer (modal spécialisée) ────────────────────────────────── */
+.file-viewer {
+    max-width: 1400px;
+    max-height: 92vh;
+}
+.file-viewer-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-3);
+    border-radius: 10px 10px 0 0;
+}
+.file-viewer-title-wrap {
+    flex: 1;
+    min-width: 0;
+}
+.file-viewer-name {
+    margin: 0 0 2px 0;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    color: var(--accent);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.file-viewer-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.3px;
+}
+.file-viewer-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.file-viewer-btn {
+    font-size: 12px;
+    padding: 5px 10px;
+    white-space: nowrap;
+}
+.file-viewer-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-right: 4px;
+}
+.file-viewer-search-icon {
+    position: absolute;
+    left: 8px;
+    color: var(--text-dim);
+    pointer-events: none;
+}
+.file-viewer-search {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 5px 60px 5px 26px;
+    width: 200px;
+    outline: none;
+    transition: border-color 0.1s;
+}
+.file-viewer-search:focus { border-color: var(--accent); }
+.file-viewer-search-count {
+    position: absolute;
+    right: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+.file-viewer-search-count.none { color: var(--red); }
+
+.file-viewer-content {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    padding: 8px 0;
+}
+.file-viewer-content.nowrap .fv-line-text {
+    white-space: pre;
+}
+.file-viewer-content:not(.nowrap) .fv-line-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.fv-line {
+    display: flex;
+    gap: 14px;
+    padding: 0 18px 0 0;
+    color: var(--text-bright);
+}
+.fv-line:hover { background: rgba(255, 255, 255, 0.025); }
+.fv-line-num {
+    flex-shrink: 0;
+    color: var(--text-dim);
+    text-align: right;
+    user-select: none;
+    padding: 0 10px 0 14px;
+    opacity: 0.55;
+    border-right: 1px solid var(--border);
+}
+.fv-line-text { flex: 1; min-width: 0; }
+.fv-line-hit { background: rgba(255, 184, 107, 0.08); }
+.fv-mark {
+    background: rgba(255, 200, 50, 0.45);
+    color: var(--text-bright);
+    border-radius: 2px;
+    padding: 0 1px;
+    font-weight: 600;
+}
+.file-viewer-content .open { color: var(--green); font-weight: 600; }
+.file-viewer-content .closed { color: var(--red); }
+.file-viewer-content .filtered { color: var(--yellow); }
+.file-viewer-content .vuln { color: var(--red); font-weight: 700; }
+.file-viewer-content .cve { color: var(--magenta); font-weight: 600; }
+.file-viewer-content .sev-critical { color: var(--red); font-weight: 700; }
+.file-viewer-content .sev-high { color: var(--orange); font-weight: 600; }
+.file-viewer-content .sev-medium { color: var(--yellow); }
+.file-viewer-content .sev-low { color: var(--accent); }
+
+.file-viewer-loading {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+.file-viewer-error { color: var(--red); }
+
+.file-viewer-foot {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-}
-.modal-header h3 {
-    margin: 0;
-    font-family: var(--font-mono);
-    color: var(--accent);
-}
-.modal-header > div { display: flex; gap: 8px; }
-.modal-meta {
-    padding: 10px 20px;
+    padding: 8px 18px;
+    border-top: 1px solid var(--border);
     background: var(--bg-3);
-    color: var(--text-dim);
+    border-radius: 0 0 10px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
-    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+    gap: 12px;
 }
-.modal-content .file-content {
-    flex: 1;
-    margin: 0;
-    border: none;
-    border-radius: 0;
-    max-height: none;
-    overflow-y: auto;
+.file-viewer-foot-l, .file-viewer-foot-r {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.file-viewer-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.6;
+}
+.file-viewer-kbd {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    color: var(--text);
 }
 
 /* ─── Misc ──────────────────────────────────────────────────────────── */
@@ -1551,4 +1700,23 @@ input:focus, select:focus { border-color: var(--accent); }
     .wl-row-path { grid-area: path; }
     .wl-row-size { grid-area: size; text-align: left; }
     .wl-row-copy { grid-area: copy; }
+
+    /* File viewer responsive : head devient deux lignes, search prend
+       toute la largeur, boutons compactés. */
+    .modal { padding: 10px; }
+    .file-viewer-head {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .file-viewer-title-wrap { width: 100%; }
+    .file-viewer-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+    .file-viewer-search-wrap { flex: 1; min-width: 140px; }
+    .file-viewer-search { width: 100%; }
+    .file-viewer-btn { font-size: 11px; padding: 4px 8px; }
+    .fv-line-num { padding: 0 6px 0 8px; }
+    .file-viewer-foot { font-size: 10px; flex-wrap: wrap; }
+    .file-viewer-foot-r { display: none; }
 }

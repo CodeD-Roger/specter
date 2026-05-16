@@ -1259,9 +1259,29 @@ function humanSize(b) {
 // ─── File viewer modal ─────────────────────────────────────────────────
 
 let currentFilePath = null;
+let _fileLines = [];          // [{ num, text, klass }]
+let _fileSearchActive = "";   // dernière query
 
 function setupModal() {
-    $("#file-close").addEventListener("click", () => $("#file-modal").hidden = true);
+    const modal = $("#file-modal");
+    const closeModal = () => { modal.hidden = true; _fileSearchActive = ""; };
+
+    $("#file-close").addEventListener("click", closeModal);
+
+    // Clic sur le backdrop (hors modal-content) → ferme
+    modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+    // Échap pour fermer, Ctrl+F pour focus search
+    document.addEventListener("keydown", (e) => {
+        if (modal.hidden) return;
+        if (e.key === "Escape") { e.preventDefault(); closeModal(); }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+            e.preventDefault();
+            $("#file-search").focus();
+            $("#file-search").select();
+        }
+    });
+
     $("#file-download").addEventListener("click", () => {
         if (!currentFilePath) return;
         const url = `/api/download?path=${encodeURIComponent(currentFilePath)}&token=${encodeURIComponent(TOKEN)}`;
@@ -1277,7 +1297,7 @@ function setupModal() {
         if (!confirm("Supprimer ce fichier ?")) return;
         try {
             await api(`/api/file?path=${encodeURIComponent(currentFilePath)}`, { method: "DELETE" });
-            $("#file-modal").hidden = true;
+            closeModal();
             refreshStatus();
             if ($("#files-list").offsetParent) loadFiles(currentCategory);
             if ($("#reports-list").offsetParent) loadReports();
@@ -1286,24 +1306,137 @@ function setupModal() {
             alert("Erreur : " + e.message);
         }
     });
+
+    $("#file-wrap-toggle").addEventListener("click", () => {
+        const c = $("#file-modal-content");
+        c.classList.toggle("nowrap");
+    });
+
+    let searchTimer;
+    $("#file-search").addEventListener("input", (e) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => applyFileSearch(e.target.value), 80);
+    });
+    $("#file-search").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") jumpToNextMatch();
+    });
 }
 
 async function openFile(path) {
+    const content = $("#file-modal-content");
+    content.innerHTML = '<div class="file-viewer-loading">Chargement…</div>';
+    $("#file-modal").hidden = false;
     try {
         const r = await api(`/api/file?path=${encodeURIComponent(path)}`);
         currentFilePath = path;
         $("#file-modal-name").textContent = r.name;
         $("#file-modal-meta").textContent =
-            `${humanSize(r.size)} — ${new Date(r.mtime * 1000).toLocaleString()} — ${path}`;
-        $("#file-modal-content").innerHTML = "";
-        // Coloriser ligne par ligne
-        r.content.split("\n").forEach((line) => {
-            appendLine($("#file-modal-content"), line, classifyLine(line));
-        });
-        $("#file-modal").hidden = false;
+            `${humanSize(r.size)} · ${new Date(r.mtime * 1000).toLocaleString()}`;
+        $("#file-modal-path-foot").textContent = path;
+        renderFileContent(r.content);
+        $("#file-search").value = "";
+        $("#file-search-count").textContent = "";
+        content.scrollTop = 0;
     } catch (e) {
-        alert("Erreur : " + e.message);
+        content.innerHTML = `<div class="file-viewer-loading file-viewer-error">Erreur : ${e.message}</div>`;
     }
+}
+
+function renderFileContent(content) {
+    const container = $("#file-modal-content");
+    container.innerHTML = "";
+    const lines = content.split("\n");
+    // Si dernière ligne vide (artéfact du split sur fichier finissant par \n),
+    // on la retire pour ne pas afficher une ligne fantôme.
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+
+    _fileLines = [];
+    const frag = document.createDocumentFragment();
+    const lnWidth = String(lines.length).length;
+
+    if (lines.length === 0 || (lines.length === 1 && lines[0] === "")) {
+        const empty = document.createElement("div");
+        empty.className = "file-viewer-loading";
+        empty.textContent = "Fichier vide.";
+        container.appendChild(empty);
+        $("#file-modal-lines").textContent = "0 lignes";
+        return;
+    }
+
+    lines.forEach((text, idx) => {
+        const klass = classifyLine(text);
+        const row = document.createElement("div");
+        row.className = "fv-line" + (klass ? " " + klass : "");
+        row.dataset.ln = idx + 1;
+
+        const num = document.createElement("span");
+        num.className = "fv-line-num";
+        num.style.minWidth = (lnWidth + 1) + "ch";
+        num.textContent = idx + 1;
+
+        const txt = document.createElement("span");
+        txt.className = "fv-line-text";
+        txt.textContent = text;
+
+        row.appendChild(num);
+        row.appendChild(txt);
+        frag.appendChild(row);
+        _fileLines.push({ num: idx + 1, text, klass, el: row, textEl: txt });
+    });
+    container.appendChild(frag);
+    $("#file-modal-lines").textContent = lines.length + " ligne" + (lines.length > 1 ? "s" : "");
+}
+
+function applyFileSearch(query) {
+    _fileSearchActive = query;
+    const trimmed = query.trim();
+    let matches = 0;
+    const lower = trimmed.toLowerCase();
+    for (const line of _fileLines) {
+        if (!trimmed) {
+            line.textEl.textContent = line.text;
+            line.el.classList.remove("fv-line-hit");
+            continue;
+        }
+        const lcText = line.text.toLowerCase();
+        const idx = lcText.indexOf(lower);
+        if (idx === -1) {
+            line.textEl.textContent = line.text;
+            line.el.classList.remove("fv-line-hit");
+            continue;
+        }
+        line.el.classList.add("fv-line-hit");
+        // Reconstruit le texte avec <mark> sur chaque occurrence
+        line.textEl.innerHTML = "";
+        let pos = 0;
+        let i = lcText.indexOf(lower, 0);
+        while (i !== -1) {
+            if (i > pos) line.textEl.appendChild(document.createTextNode(line.text.slice(pos, i)));
+            const m = document.createElement("mark");
+            m.className = "fv-mark";
+            m.textContent = line.text.slice(i, i + trimmed.length);
+            line.textEl.appendChild(m);
+            pos = i + trimmed.length;
+            matches++;
+            i = lcText.indexOf(lower, pos);
+        }
+        if (pos < line.text.length) line.textEl.appendChild(document.createTextNode(line.text.slice(pos)));
+    }
+    const counter = $("#file-search-count");
+    counter.textContent = trimmed ? `${matches} occurrence${matches !== 1 ? "s" : ""}` : "";
+    counter.classList.toggle("none", trimmed && matches === 0);
+}
+
+function jumpToNextMatch() {
+    if (!_fileSearchActive.trim()) return;
+    const hits = $$(".fv-line-hit");
+    if (hits.length === 0) return;
+    const container = $("#file-modal-content");
+    const scrollTop = container.scrollTop;
+    // Trouve le prochain hit après la position de scroll actuelle
+    let target = hits.find(h => h.offsetTop > scrollTop + 40);
+    if (!target) target = hits[0]; // wrap to top
+    container.scrollTop = target.offsetTop - 40;
 }
 
 // ─── Wordlists view ────────────────────────────────────────────────────

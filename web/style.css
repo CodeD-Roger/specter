@@ -145,13 +145,10 @@ input:focus, select:focus { border-color: var(--accent); }
 .sbo-mark {
     width: 30px;
     height: 30px;
-    background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
     display: grid;
     place-items: center;
-    color: #0a0a0c;
-    font-weight: 800;
-    font-size: 14px;
-    clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%);
+    font-size: 22px;
+    line-height: 1;
     flex-shrink: 0;
 }
 .sbo-name {

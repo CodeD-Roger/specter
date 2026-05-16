@@ -313,7 +313,7 @@ input:focus, select:focus { border-color: var(--accent); }
 .view-header { margin-bottom: 24px; }
 
 /* ─── Dashboard ─────────────────────────────────────────────────────── */
-[data-view="dashboard"] {
+.view[data-view="dashboard"] {
     padding: 32px 40px 64px;
     background: #0a0a0c;
     min-height: 100%;
@@ -704,7 +704,7 @@ input:focus, select:focus { border-color: var(--accent); }
 .dsh-tbl-empty { padding: 32px 20px; text-align: center; color: #5f5f6a; font-size: 13px; }
 
 /* Non-dashboard views retain their own padding */
-[data-view]:not([data-view="dashboard"]) { padding: 32px 40px; }
+.view[data-view]:not([data-view="dashboard"]) { padding: 32px 40px; }
 
 /* ─── Cards & forms ─────────────────────────────────────────────────── */
 .card {
